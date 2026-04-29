@@ -3,7 +3,7 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { createProject } from "@/lib/projects";
 import { TermRule } from "@/components/TermRule";
-import { ZipDropzone } from "@/components/ZipDropzone";
+import { UploadDropzone } from "@/components/UploadDropzone";
 
 export default async function NewProjectPage({
   searchParams,
@@ -21,7 +21,7 @@ export default async function NewProjectPage({
 
     const file = formData.get("zip");
     if (!(file instanceof File) || file.size === 0) {
-      redirect("/projects/new?error=missing-zip");
+      redirect("/projects/new?error=missing-file");
     }
     const title = String(formData.get("title") ?? "").trim();
     const slugRaw = String(formData.get("slug") ?? "").trim();
@@ -33,7 +33,8 @@ export default async function NewProjectPage({
 
     if (!title) redirect("/projects/new?error=missing-title");
 
-    const buf = await (file as File).arrayBuffer();
+    const f = file as File;
+    const buf = await f.arrayBuffer();
 
     try {
       const project = await createProject({
@@ -43,6 +44,7 @@ export default async function NewProjectPage({
         description,
         entryPath: entryPath || undefined,
         zipBuffer: buf,
+        originalFilename: f.name,
         passwords: password ? [{ label: passwordLabel, password }] : undefined,
       });
       redirect(`/projects/${project.slug}`);
@@ -99,16 +101,16 @@ export default async function NewProjectPage({
 
         <Field
           label="entry file (optional)"
-          hint="The HTML file served when someone hits /p/<slug>/. Defaults to index.html, then first .html in zip."
+          hint="Served when someone hits /p/<slug>/. Defaults to index.html, then first .html in zip. Ignored for single-html uploads."
         >
           <Input name="entryPath" placeholder="index.html" />
         </Field>
 
         <Field
-          label="zip file"
-          hint="Static files only (HTML, CSS, JS, images, fonts)."
+          label="upload"
+          hint="A .zip of static files OR a single .html file. 50 MB cap."
         >
-          <ZipDropzone name="zip" required />
+          <UploadDropzone name="zip" required />
         </Field>
 
         <div className="pt-2">

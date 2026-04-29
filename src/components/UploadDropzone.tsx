@@ -7,9 +7,16 @@ type Props = {
   required?: boolean;
 };
 
-const MAX_BYTES = 50 * 1024 * 1024; // matches createProject's cap
+const MAX_BYTES = 50 * 1024 * 1024;
 
-export function ZipDropzone({ name, required }: Props) {
+const ALLOWED_EXTS = [".zip", ".html", ".htm"] as const;
+
+function extOk(name: string): boolean {
+  const lower = name.toLowerCase();
+  return ALLOWED_EXTS.some((ext) => lower.endsWith(ext));
+}
+
+export function UploadDropzone({ name, required }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [hover, setHover] = useState(false);
@@ -21,18 +28,16 @@ export function ZipDropzone({ name, required }: Props) {
       setError(null);
       return;
     }
-    const isZip =
-      picked.type === "application/zip" ||
-      picked.type === "application/x-zip-compressed" ||
-      picked.name.toLowerCase().endsWith(".zip");
-    if (!isZip) {
-      setError("not a .zip file");
+    if (!extOk(picked.name)) {
+      setError("must be a .zip or .html file");
       setFile(null);
       if (inputRef.current) inputRef.current.value = "";
       return;
     }
     if (picked.size > MAX_BYTES) {
-      setError(`file is too big (${(picked.size / 1024 / 1024).toFixed(1)} MB > 50 MB)`);
+      setError(
+        `file is too big (${(picked.size / 1024 / 1024).toFixed(1)} MB > 50 MB)`,
+      );
       setFile(null);
       if (inputRef.current) inputRef.current.value = "";
       return;
@@ -47,7 +52,7 @@ export function ZipDropzone({ name, required }: Props) {
     const dropped = e.dataTransfer.files?.[0];
     if (!dropped) return;
     accept(dropped);
-    if (inputRef.current) {
+    if (inputRef.current && extOk(dropped.name) && dropped.size <= MAX_BYTES) {
       const dt = new DataTransfer();
       dt.items.add(dropped);
       inputRef.current.files = dt.files;
@@ -117,7 +122,8 @@ export function ZipDropzone({ name, required }: Props) {
         ) : (
           <>
             <p className="text-sm text-neutral-300">
-              <span className="text-neutral-600">$ </span>drop a .zip here
+              <span className="text-neutral-600">$ </span>drop a .zip or .html
+              here
             </p>
             <p className="text-xs text-neutral-500">
               <span className="text-neutral-600">// </span>or click to choose
@@ -128,16 +134,14 @@ export function ZipDropzone({ name, required }: Props) {
           ref={inputRef}
           name={name}
           type="file"
-          accept=".zip,application/zip"
+          accept=".zip,.html,.htm,application/zip,text/html"
           required={required}
           onChange={onPick}
           className="sr-only"
           tabIndex={-1}
         />
       </div>
-      {error ? (
-        <p className="text-xs text-red-400">! {error}</p>
-      ) : null}
+      {error ? <p className="text-xs text-red-400">! {error}</p> : null}
     </div>
   );
 }

@@ -88,9 +88,13 @@ export async function POST(req: NextRequest) {
   const title = String(form.get("title") ?? "").trim();
   if (!title) return jsonError("missing_field", "title is required.");
 
-  const zip = form.get("zip");
-  if (!(zip instanceof File) || zip.size === 0) {
-    return jsonError("missing_field", "zip file is required.");
+  // Accept the canonical `file` field; fall back to `zip` for back-compat.
+  const upload = form.get("file") ?? form.get("zip");
+  if (!(upload instanceof File) || upload.size === 0) {
+    return jsonError(
+      "missing_field",
+      "file is required (a .zip or a single .html).",
+    );
   }
 
   const slug = String(form.get("slug") ?? "").trim() || undefined;
@@ -101,7 +105,7 @@ export async function POST(req: NextRequest) {
     String(form.get("passwordLabel") ?? "").trim() || "default";
 
   try {
-    const buf = await zip.arrayBuffer();
+    const buf = await upload.arrayBuffer();
     const project = await createProject({
       ownerId: auth.user.id,
       title,
@@ -109,6 +113,7 @@ export async function POST(req: NextRequest) {
       description,
       entryPath,
       zipBuffer: buf,
+      originalFilename: upload.name,
       passwords: password ? [{ label: passwordLabel, password }] : undefined,
       collisionMode: "reject",
     });

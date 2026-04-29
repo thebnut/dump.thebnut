@@ -50,15 +50,23 @@ export async function POST(req: NextRequest, { params }: Params) {
     );
   }
 
-  const zip = form.get("zip");
-  if (!(zip instanceof File) || zip.size === 0) {
-    return jsonError("missing_field", "zip file is required.");
+  const upload = form.get("file") ?? form.get("zip");
+  if (!(upload instanceof File) || upload.size === 0) {
+    return jsonError(
+      "missing_field",
+      "file is required (a .zip or a single .html).",
+    );
   }
   const entryHint = String(form.get("entryPath") ?? "").trim() || undefined;
 
   try {
-    const buf = await zip.arrayBuffer();
-    const updated = await replaceProjectFiles(project.id, buf, entryHint);
+    const buf = await upload.arrayBuffer();
+    const updated = await replaceProjectFiles(
+      project.id,
+      buf,
+      entryHint,
+      upload.name,
+    );
     return jsonOk({
       project: serializeProject(updated, siteUrl(req)),
       replaced: true,
