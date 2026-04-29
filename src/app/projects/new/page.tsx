@@ -3,6 +3,7 @@ import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { createProject } from "@/lib/projects";
 import { TermRule } from "@/components/TermRule";
+import { ZipDropzone } from "@/components/ZipDropzone";
 
 export default async function NewProjectPage({
   searchParams,
@@ -107,13 +108,7 @@ export default async function NewProjectPage({
           label="zip file"
           hint="Static files only (HTML, CSS, JS, images, fonts)."
         >
-          <input
-            name="zip"
-            type="file"
-            accept=".zip,application/zip"
-            required
-            className="block w-full text-sm font-mono file:mr-3 file:rounded-lg file:border file:border-neutral-700 file:bg-neutral-800 file:px-3 file:py-2 file:text-neutral-100 file:font-mono hover:file:bg-neutral-700 file:cursor-pointer"
-          />
+          <ZipDropzone name="zip" required />
         </Field>
 
         <div className="pt-2">
