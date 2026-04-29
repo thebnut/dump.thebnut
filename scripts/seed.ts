@@ -1,9 +1,8 @@
 // Bootstrap a single admin user from env vars if none exists.
 // Safe to run repeatedly — no-ops if any user exists.
-import "dotenv/config";
-import bcrypt from "bcryptjs";
-import { db } from "../src/lib/db";
-import { users } from "../src/lib/db/schema";
+import { config } from "dotenv";
+config({ path: ".env.local" });
+config({ path: ".env" });
 
 async function main() {
   const email = process.env.SEED_ADMIN_EMAIL;
@@ -12,6 +11,10 @@ async function main() {
     console.log("SEED_ADMIN_EMAIL / SEED_ADMIN_PASSWORD not set — skipping.");
     return;
   }
+
+  const bcrypt = (await import("bcryptjs")).default;
+  const { db } = await import("../src/lib/db");
+  const { users } = await import("../src/lib/db/schema");
 
   const existing = await db.select().from(users).limit(1);
   if (existing[0]) {
