@@ -9,11 +9,16 @@ export const authConfig: NextAuthConfig = {
       const isLoggedIn = !!auth?.user;
       const path = nextUrl.pathname;
 
-      // Public: login page, project gate + serve, NextAuth endpoints, _next assets
+      // Public: login page, project gate + serve, NextAuth endpoints,
+      // bearer-auth API (route handlers do their own auth), docs page,
+      // _next assets, favicon.
       const isPublic =
         path === "/login" ||
+        path === "/api" ||
         path.startsWith("/p/") ||
+        path.startsWith("/gate/") ||
         path.startsWith("/api/auth") ||
+        path.startsWith("/api/v1") ||
         path.startsWith("/_next") ||
         path === "/favicon.ico";
 
