@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 64" width="200" height="64">
+  <g transform="translate(8, 16)">
+    <path d="M 14 4 L 4 4 L 4 28 L 14 28" fill="none" stroke="#ededed" stroke-width="2.5" stroke-linecap="square"/>
+    <path d="M 30 4 L 40 4 L 40 28 L 30 28" fill="none" stroke="#ededed" stroke-width="2.5" stroke-linecap="square"/>
+    <rect x="20" y="14" width="4" height="4" fill="#34d399"/>
+  </g>
+  <text x="62" y="40" font-family="Geist Mono, ui-monospace, Menlo, monospace" font-size="22" font-weight="600" letter-spacing="-0.01em" fill="#ededed">.thebnut</text>
+</svg>

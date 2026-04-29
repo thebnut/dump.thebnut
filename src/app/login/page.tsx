@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { signIn, auth } from "@/lib/auth";
 import { AuthError } from "next-auth";
+import { Logo } from "@/components/Logo";
 
 type Props = {
   searchParams: Promise<{ error?: string; callbackUrl?: string }>;
@@ -35,8 +36,10 @@ export default async function LoginPage({ searchParams }: Props) {
         action={login}
         className="w-full max-w-sm space-y-4 rounded-2xl border border-neutral-800 bg-neutral-900/50 p-8"
       >
-        <h1 className="text-xl font-semibold">dump.thebnut</h1>
-        <p className="text-sm text-neutral-400">Sign in to view your dump.</p>
+        <div className="space-y-1">
+          <Logo size="md" />
+          <p className="text-sm text-neutral-400">Sign in to view your dump.</p>
+        </div>
 
         <div className="space-y-2">
           <label htmlFor="email" className="text-xs text-neutral-400">

@@ -6,6 +6,7 @@ import {
   type ProjectWithStats,
 } from "@/lib/queries";
 import { ProjectRow } from "@/components/ProjectRow";
+import { Logo } from "@/components/Logo";
 
 export default async function DashboardPage() {
   const session = await auth();
@@ -20,10 +21,10 @@ export default async function DashboardPage() {
 
   return (
     <main className="mx-auto w-full max-w-4xl p-6 space-y-8">
-      <header className="flex items-center justify-between">
+      <header className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold">dump.thebnut</h1>
-          <p className="text-sm text-neutral-400">
+          <Logo size="lg" href="/" />
+          <p className="text-sm text-neutral-400 mt-2">
             Signed in as {session.user.email}
             {session.user.role === "admin" ? (
               <span className="ml-2 rounded-md bg-neutral-800 px-2 py-0.5 text-xs">
@@ -32,25 +33,25 @@ export default async function DashboardPage() {
             ) : null}
           </p>
         </div>
-        <div className="flex gap-2 items-center">
+        <div className="flex gap-2 items-center shrink-0">
           {session.user.role === "admin" ? (
             <Link
               href="/admin"
-              className="rounded-lg border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800"
+              className="rounded-lg border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800 whitespace-nowrap"
             >
               Admin
             </Link>
           ) : null}
           <Link
             href="/projects/new"
-            className="rounded-lg bg-white text-neutral-900 px-3 py-1.5 text-sm font-medium hover:bg-neutral-200"
+            className="rounded-lg bg-white text-neutral-900 px-3 py-1.5 text-sm font-medium hover:bg-neutral-200 whitespace-nowrap"
           >
             New project
           </Link>
           <form action={logout}>
             <button
               type="submit"
-              className="rounded-lg border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800"
+              className="rounded-lg border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800 whitespace-nowrap"
             >
               Sign out
             </button>
@@ -75,11 +76,11 @@ export default async function DashboardPage() {
 
 function EmptyState() {
   return (
-    <div className="p-10 text-center text-neutral-400">
+    <div className="p-10 flex flex-col items-center gap-3 text-neutral-400">
       <p className="text-sm">Nothing in your dump yet.</p>
       <Link
         href="/projects/new"
-        className="mt-3 inline-block rounded-lg bg-white text-neutral-900 px-3 py-1.5 text-sm font-medium hover:bg-neutral-200"
+        className="rounded-lg bg-white text-neutral-900 px-3 py-1.5 text-sm font-medium hover:bg-neutral-200"
       >
         Upload a zip
       </Link>
