@@ -157,6 +157,15 @@ curl -sS -X DELETE "https://dump.thebnut.com/api/v1/projects/$SLUG" \
 - **Rate limits**: 60 req/min per token, 10 uploads/min.
 - **Field name**: the upload field is `file` (the legacy `zip` name is also accepted).
 
+## Important rules
+
+**DO NOT add a password to a project unless the user explicitly asks for one.** If the user does ask, generate or pick the password yourself (don't reuse account passwords) and **echo the value back to the user in plaintext** — they can't recover it from the dashboard. The password endpoint is only for the explicit "make this private" intent.
+
+**Bundler base path warning**: framework builds (Vite, CRA, Next export, etc.) often emit absolute asset paths like `/assets/foo.js`. dump.thebnut server-side rewrites the most common cases (href/src/action/poster/formaction in HTML) to be project-relative, so static prototypes usually Just Work. But **if the user's bundle uses dynamic JS imports** (code-splitting, lazy routes) and the page renders blank, the JS is fetching `/assets/...` from the origin root — which 404s. Tell the user to rebuild with a base path:
+- Vite: `vite build --base=./` (or `base: './'` in `vite.config.ts`)
+- CRA: set `"homepage": "."` in `package.json` and rebuild
+- Next.js (static export): set `basePath` to the project's slug
+
 ## Error envelope
 
 All errors return JSON:
