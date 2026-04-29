@@ -47,5 +47,6 @@ export function rateLimit(key: string, cfg: Config): RateLimitResult {
 }
 
 // Cheap default scopes — adjust per-route as needed.
-export const RL_DEFAULT: Config = { capacity: 60, refillPerSec: 60 / 60 }; // 60/min
+// refillPerSec = capacity / 60 (the "per minute" intent).
+export const RL_DEFAULT: Config = { capacity: 60, refillPerSec: 1 }; // 60/min
 export const RL_UPLOAD: Config = { capacity: 10, refillPerSec: 10 / 60 }; // 10/min
