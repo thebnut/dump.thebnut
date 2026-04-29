@@ -29,7 +29,7 @@ export function ProjectRow({ project }: { project: ProjectWithStats }) {
         </div>
         {project.description ? (
           <p className="text-[13px] text-neutral-400 truncate ml-[22px] mt-1">
-            <span className="text-neutral-600">// </span>
+            <span className="text-neutral-600">{"// "}</span>
             {project.description}
           </p>
         ) : null}

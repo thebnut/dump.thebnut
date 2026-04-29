@@ -69,7 +69,7 @@ export default async function GatePage({ params, searchParams }: Props) {
             {project.title}
           </h1>
           <p className="text-sm text-neutral-400 mt-1.5">
-            <span className="text-neutral-600">// </span>
+            <span className="text-neutral-600">{"// "}</span>
             this prototype needs a password. enter the one you were given.
           </p>
         </div>

@@ -126,7 +126,7 @@ export function UploadDropzone({ name, required }: Props) {
               here
             </p>
             <p className="text-xs text-neutral-500">
-              <span className="text-neutral-600">// </span>or click to choose
+              <span className="text-neutral-600">{"// "}</span>or click to choose
             </p>
           </>
         )}

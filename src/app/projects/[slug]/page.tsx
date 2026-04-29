@@ -179,7 +179,7 @@ export default async function ProjectManagePage({
         <TermRule label={`passwords · ${passwords.length}`} />
         <div className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-6 space-y-4">
           <p className="text-xs text-neutral-500">
-            <span className="text-neutral-600">// </span>
+            <span className="text-neutral-600">{"// "}</span>
             {project.isProtected
               ? "protected — at least one password required."
               : "unprotected — direct link grants access."}
@@ -263,7 +263,7 @@ export default async function ProjectManagePage({
               })}
             </ul>
           ) : (
-            <p className="text-sm text-neutral-600">// no passwords set.</p>
+            <p className="text-sm text-neutral-600">{"// no passwords set."}</p>
           )}
 
           <form
@@ -286,7 +286,7 @@ export default async function ProjectManagePage({
         <TermRule label={`access log · ${logs.length}`} />
         <div className="rounded-xl border border-neutral-800 bg-neutral-900/40 overflow-hidden">
           {logs.length === 0 ? (
-            <p className="text-sm text-neutral-600 p-6">// no hits yet.</p>
+            <p className="text-sm text-neutral-600 p-6">{"// no hits yet."}</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -335,7 +335,7 @@ export default async function ProjectManagePage({
         <TermRule label="danger zone" tone="danger" />
         <div className="rounded-xl border border-red-900/40 bg-red-950/20 p-6 space-y-3">
           <p className="text-xs text-red-300">
-            <span className="text-red-400/60">// </span>this cannot be undone.
+            <span className="text-red-400/60">{"// "}</span>this cannot be undone.
             files in blob storage are removed too.
           </p>
           <form action={destroy}>

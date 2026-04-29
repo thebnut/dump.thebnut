@@ -123,7 +123,7 @@ export default async function SettingsPage({ searchParams }: Props) {
         </Link>
         <h1 className="text-2xl font-semibold mt-1">$ settings</h1>
         <p className="text-xs text-neutral-500 mt-1">
-          <span className="text-neutral-600">// </span>
+          <span className="text-neutral-600">{"// "}</span>
           api tokens for agents · password
         </p>
       </div>
@@ -134,7 +134,7 @@ export default async function SettingsPage({ searchParams }: Props) {
         <TermRule label={`api tokens · ${activeTokens.length} active`} />
         <div className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-6 space-y-4">
           <p className="text-xs text-neutral-500">
-            <span className="text-neutral-600">// </span>
+            <span className="text-neutral-600">{"// "}</span>
             tokens authenticate <code>POST /api/v1/projects</code> and friends.
             see{" "}
             <Link
@@ -147,7 +147,7 @@ export default async function SettingsPage({ searchParams }: Props) {
           </p>
 
           {tokens.length === 0 ? (
-            <p className="text-sm text-neutral-600">// no tokens yet.</p>
+            <p className="text-sm text-neutral-600">{"// no tokens yet."}</p>
           ) : (
             <ul className="-mx-2">
               {tokens.map((t, i) => {
@@ -229,7 +229,7 @@ export default async function SettingsPage({ searchParams }: Props) {
         <TermRule label="password" />
         <div className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-6 space-y-3">
           <p className="text-xs text-neutral-500">
-            <span className="text-neutral-600">// </span>
+            <span className="text-neutral-600">{"// "}</span>
             change your sign-in password. minimum 8 characters.
           </p>
           <form action={changePassword} className="space-y-3">
@@ -270,7 +270,7 @@ function NewTokenBanner({ token }: { token: string }) {
         ● token created · copy it now
       </p>
       <p className="text-xs text-neutral-400">
-        <span className="text-neutral-600">// </span>
+        <span className="text-neutral-600">{"// "}</span>
         this is the only time the plaintext token is shown. paste it into your
         agent / CI / .env now — we only store the hash.
       </p>
