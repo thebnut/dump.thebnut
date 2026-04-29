@@ -41,3 +41,14 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env*.local
+
+# SonarQube
+.scannerwork/
+*-quality-dashboard.html
+
+# sonarqube-remediation skill — transient output
+.sonar-snapshots/
+.sonar-fix-manifests/
+sonar-triage-*.md
+sonar-progress-*.md
+sonar-hotspot-review-*.md

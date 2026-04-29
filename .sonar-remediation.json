@@ -1,0 +1,28 @@
+{
+  "sonarUrl": "http://localhost:9000",
+  "projectKey": "DumpThebnut",
+  "tokenEnv": "SONAR_TOKEN",
+  "branchPrefix": "fix/sonar",
+  "testCommand": "echo 'no tests'",
+  "lintCommand": "echo 'no lint configured'",
+  "typecheckCommand": "npx tsc --noEmit",
+  "excludePaths": [
+    "node_modules/**",
+    ".next/**",
+    "dist/**",
+    "build/**",
+    "drizzle/**",
+    "scripts/**",
+    "public/**",
+    "**/*.generated.*"
+  ],
+  "highScrutinyPaths": [
+    "src/lib/auth.ts",
+    "src/lib/auth.config.ts",
+    "src/lib/api.ts",
+    "src/lib/tokens.ts",
+    "src/lib/gate.ts",
+    "src/proxy.ts",
+    "src/app/api/**"
+  ]
+}
