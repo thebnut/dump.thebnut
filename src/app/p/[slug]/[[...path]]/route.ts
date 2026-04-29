@@ -49,10 +49,8 @@ export async function GET(
   }
 
   // Log only "page" loads (HTML), not every asset, to keep the log readable.
-  // Use Content-Type to decide.
   const isHtml = file.contentType.startsWith("text/html");
   if (isHtml) {
-    // Resolve label name for nice display.
     if (passwordLabelIdUsed) {
       const { db: _db } = await import("@/lib/db");
       const { projectPasswords } = await import("@/lib/db/schema");
@@ -74,6 +72,24 @@ export async function GET(
     });
   }
 
+  // For HTML files, rewrite leading-slash absolute paths to be project-
+  // scoped. This is the common Vite/CRA `base: '/'` problem — bundlers
+  // emit src="/assets/...js", which would resolve to the origin root
+  // instead of /p/<slug>/. We patch on the way out so static prototypes
+  // built without a base path Just Work.
+  if (isHtml) {
+    const text = await upstream.text();
+    const rewritten = rewriteHtmlPaths(text, slug);
+    return new NextResponse(rewritten, {
+      status: 200,
+      headers: {
+        "Content-Type": file.contentType,
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }
+
   return new NextResponse(upstream.body, {
     status: 200,
     headers: {
@@ -82,4 +98,27 @@ export async function GET(
       "X-Content-Type-Options": "nosniff",
     },
   });
+}
+
+// Rewrite href/src/action="/foo" → "/p/<slug>/foo" so absolute paths
+// inside hosted HTML resolve to the project's prefix instead of the
+// origin root.
+//
+// - Skips protocol-relative URLs (//cdn.example.com/...): the `(?!\/)`
+//   negative lookahead rejects a second slash.
+// - Skips already-prefixed paths (idempotent): the `(?!p\/<slug>\/)`
+//   prevents double-prefixing on edge cases.
+// - Doesn't touch CSS-in-JS, srcset (rare in mockups), or runtime
+//   dynamic imports inside JS bundles. Document the constraint.
+export function rewriteHtmlPaths(html: string, slug: string): string {
+  const prefix = `/p/${slug}/`;
+  // Handles both double- and single-quoted attribute values.
+  const re = new RegExp(
+    String.raw`\b(href|src|action|poster|formaction)\s*=\s*(["'])\/(?!\/|p\/${slug}\/)`,
+    "gi",
+  );
+  return html.replace(
+    re,
+    (_m, attr: string, quote: string) => `${attr}=${quote}${prefix}`,
+  );
 }
