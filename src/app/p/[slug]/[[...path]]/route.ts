@@ -112,9 +112,15 @@ export async function GET(
 //   dynamic imports inside JS bundles. Document the constraint.
 export function rewriteHtmlPaths(html: string, slug: string): string {
   const prefix = `/p/${slug}/`;
+  // Escape regex metacharacters in the slug. Today slugify() strips
+  // everything outside a-z0-9-, but the DB column is unconstrained text
+  // so this is defence-in-depth against future paths that bypass it.
+  const escapedSlug = slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Negative lookahead also matches /p/<slug> without trailing slash so
+  // a second pass over already-rewritten HTML doesn't double-prefix.
   // Handles both double- and single-quoted attribute values.
   const re = new RegExp(
-    String.raw`\b(href|src|action|poster|formaction)\s*=\s*(["'])\/(?!\/|p\/${slug}\/)`,
+    String.raw`\b(href|src|action|poster|formaction)\s*=\s*(["'])\/(?!\/|p\/${escapedSlug}(?:\/|$))`,
     "gi",
   );
   return html.replace(
