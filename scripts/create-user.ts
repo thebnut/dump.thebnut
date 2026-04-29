@@ -1,9 +1,7 @@
 // Usage: npm run user -- <email> <password> [admin|user]
-import "dotenv/config";
-import bcrypt from "bcryptjs";
-import { db } from "../src/lib/db";
-import { users } from "../src/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { config } from "dotenv";
+config({ path: ".env.local" });
+config({ path: ".env" });
 
 async function main() {
   const [email, password, role = "user"] = process.argv.slice(2);
@@ -15,6 +13,12 @@ async function main() {
     console.error("Role must be 'admin' or 'user'");
     process.exit(1);
   }
+
+  // Dynamic imports so env is loaded before the db client is constructed.
+  const bcrypt = (await import("bcryptjs")).default;
+  const { db } = await import("../src/lib/db");
+  const { users } = await import("../src/lib/db/schema");
+  const { eq } = await import("drizzle-orm");
 
   const hash = await bcrypt.hash(password, 10);
   const lower = email.toLowerCase();
