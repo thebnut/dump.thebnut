@@ -396,6 +396,27 @@ export async function addProjectPassword(
     .where(eq(projects.id, projectId));
 }
 
+export async function updateProjectPassword(
+  projectId: string,
+  passwordId: string,
+  newPassword: string,
+): Promise<void> {
+  const hash = await bcrypt.hash(newPassword, 10);
+  await db
+    .update(projectPasswords)
+    .set({ passwordHash: hash })
+    .where(
+      and(
+        eq(projectPasswords.id, passwordId),
+        eq(projectPasswords.projectId, projectId),
+      ),
+    );
+  await db
+    .update(projects)
+    .set({ updatedAt: new Date() })
+    .where(eq(projects.id, projectId));
+}
+
 export async function removeProjectPassword(
   projectId: string,
   passwordId: string,

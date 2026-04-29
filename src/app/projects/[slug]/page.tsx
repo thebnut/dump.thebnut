@@ -9,6 +9,7 @@ import {
 import {
   addProjectPassword,
   removeProjectPassword,
+  updateProjectPassword,
   deleteProject,
   updateProject,
 } from "@/lib/projects";
@@ -16,12 +17,18 @@ import { TermRule } from "@/components/TermRule";
 
 type Props = {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ edit?: string; ok?: string }>;
 };
 
-export default async function ProjectManagePage({ params }: Props) {
+export default async function ProjectManagePage({
+  params,
+  searchParams,
+}: Props) {
   const session = await auth();
   if (!session?.user) redirect("/login");
   const { slug } = await params;
+  const sp = await searchParams;
+  const editingPasswordId = sp.edit ?? null;
   const isAdmin = session.user.role === "admin";
 
   const project = await projectBySlugForUser(slug, session.user.id, isAdmin);
@@ -47,6 +54,23 @@ export default async function ProjectManagePage({ params }: Props) {
     if (!pw) return;
     await addProjectPassword(proj.id, label, pw);
     redirect(`/projects/${slug}`);
+  }
+
+  async function changePassword(formData: FormData) {
+    "use server";
+    const session = await auth();
+    if (!session?.user) redirect("/login");
+    const proj = await projectBySlugForUser(
+      slug,
+      session.user.id,
+      session.user.role === "admin",
+    );
+    if (!proj) return;
+    const id = String(formData.get("id"));
+    const pw = String(formData.get("password") ?? "");
+    if (!id || !pw) return;
+    await updateProjectPassword(proj.id, id, pw);
+    redirect(`/projects/${slug}?ok=password-updated`);
   }
 
   async function removePassword(formData: FormData) {
@@ -161,33 +185,82 @@ export default async function ProjectManagePage({ params }: Props) {
               : "unprotected — direct link grants access."}
           </p>
 
+          {sp.ok === "password-updated" ? (
+            <p className="text-xs text-emerald-400">password updated.</p>
+          ) : null}
+
           {passwords.length > 0 ? (
             <ul className="-mx-2">
-              {passwords.map((p, i) => (
-                <li
-                  key={p.id}
-                  className={`flex items-center justify-between px-2 py-2.5 ${
-                    i === 0 ? "" : "border-t border-dashed border-neutral-800"
-                  }`}
-                >
-                  <div className="flex items-center gap-2.5">
-                    <span className="text-neutral-600">●</span>
-                    <span className="text-sm">{p.label}</span>
-                    <span className="text-xs text-neutral-600">
-                      added {p.createdAt.toLocaleString()}
-                    </span>
-                  </div>
-                  <form action={removePassword}>
-                    <input type="hidden" name="id" value={p.id} />
-                    <button
-                      type="submit"
-                      className="text-xs text-red-400 hover:text-red-300 hover:[text-shadow:0_0_8px_rgba(248,113,113,0.4)]"
-                    >
-                      [remove]
-                    </button>
-                  </form>
-                </li>
-              ))}
+              {passwords.map((p, i) => {
+                const isEditing = editingPasswordId === p.id;
+                return (
+                  <li
+                    key={p.id}
+                    className={`px-2 py-2.5 ${
+                      i === 0
+                        ? ""
+                        : "border-t border-dashed border-neutral-800"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-neutral-600">●</span>
+                        <span className="text-sm">{p.label}</span>
+                        <span className="text-xs text-neutral-600">
+                          added {p.createdAt.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {isEditing ? (
+                          <Link
+                            href={`/projects/${slug}`}
+                            className="text-xs text-neutral-500 hover:text-neutral-100"
+                          >
+                            [cancel]
+                          </Link>
+                        ) : (
+                          <Link
+                            href={`/projects/${slug}?edit=${p.id}`}
+                            className="text-xs text-neutral-400 hover:text-[#39ff88]"
+                          >
+                            [change]
+                          </Link>
+                        )}
+                        <form action={removePassword}>
+                          <input type="hidden" name="id" value={p.id} />
+                          <button
+                            type="submit"
+                            className="text-xs text-red-400 hover:text-red-300 hover:[text-shadow:0_0_8px_rgba(248,113,113,0.4)]"
+                          >
+                            [remove]
+                          </button>
+                        </form>
+                      </div>
+                    </div>
+                    {isEditing ? (
+                      <form
+                        action={changePassword}
+                        className="grid grid-cols-[1fr_auto] gap-2 mt-2.5 ml-[22px]"
+                      >
+                        <input type="hidden" name="id" value={p.id} />
+                        <Input
+                          name="password"
+                          type="password"
+                          required
+                          autoFocus
+                          placeholder="new password"
+                        />
+                        <button
+                          type="submit"
+                          className="rounded-lg border border-[#39ff88] bg-[#39ff88] text-neutral-950 px-3 py-2 text-sm font-semibold hover:bg-[#5fff9f] shadow-[0_0_16px_-4px_rgba(57,255,136,0.55)] whitespace-nowrap"
+                        >
+                          [save]
+                        </button>
+                      </form>
+                    ) : null}
+                  </li>
+                );
+              })}
             </ul>
           ) : (
             <p className="text-sm text-neutral-600">// no passwords set.</p>

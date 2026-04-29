@@ -130,6 +130,12 @@ curl -sS -X POST "https://dump.thebnut.com/api/v1/projects/$SLUG/passwords" \
   -H "Content-Type: application/json" \
   -d '{"label":"reviewer","password":"<ask the user>"}'
 
+# Change a password's value (without changing the label)
+curl -sS -X PATCH "https://dump.thebnut.com/api/v1/projects/$SLUG/passwords/<id>" \
+  -H "Authorization: Bearer $DUMP_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"password":"<new value>"}'
+
 # Update title/description/entry file
 curl -sS -X PATCH "https://dump.thebnut.com/api/v1/projects/$SLUG" \
   -H "Authorization: Bearer $DUMP_TOKEN" \
