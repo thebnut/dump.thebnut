@@ -55,7 +55,17 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
 
   const zip = await JSZip.loadAsync(input.zipBuffer);
 
-  const fileEntries = Object.values(zip.files).filter((f) => !f.dir);
+  // Filter out: directories, macOS resource forks, .DS_Store, hidden dotfiles
+  // at root. Do this BEFORE computing the top-level prefix so the macOS
+  // Compress menu's __MACOSX/ shadow tree doesn't prevent stripping.
+  const isCruft = (name: string) =>
+    name.startsWith("__MACOSX/") ||
+    name.endsWith(".DS_Store") ||
+    name.split("/").some((seg) => seg === "Thumbs.db");
+
+  const fileEntries = Object.values(zip.files).filter(
+    (f) => !f.dir && !isCruft(f.name),
+  );
   if (fileEntries.length === 0) throw new Error("Zip contains no files");
   if (fileEntries.length > MAX_FILES)
     throw new Error(`Zip exceeds max file count (${MAX_FILES})`);
@@ -83,7 +93,6 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
       : entry.name;
     const rel = safeRelative(namePart);
     if (!rel) continue;
-    if (rel.startsWith("__MACOSX/") || rel.endsWith(".DS_Store")) continue;
     const bytes = await entry.async("uint8array");
     totalBytes += bytes.byteLength;
     if (totalBytes > MAX_TOTAL_BYTES)
@@ -99,6 +108,24 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
 
   // Determine entry path (default index.html → first .html → first file)
   let entryPath = input.entryPath?.trim();
+  if (entryPath) {
+    // Be forgiving: if the user typed an entry that doesn't match a stored
+    // path verbatim, try the basename match as a fallback so they don't have
+    // to know whether the upload kept a wrapping folder.
+    const normalized = safeRelative(entryPath);
+    const exact = normalized
+      ? toUpload.find((f) => f.relPath === normalized)
+      : null;
+    if (!exact && normalized) {
+      const base = normalized.split("/").pop();
+      const byBasename = base
+        ? toUpload.find((f) => f.relPath.split("/").pop() === base)
+        : null;
+      entryPath = byBasename?.relPath ?? normalized;
+    } else {
+      entryPath = normalized ?? "index.html";
+    }
+  }
   if (!entryPath) {
     const hasIndex = toUpload.find((f) => f.relPath === "index.html");
     if (hasIndex) entryPath = "index.html";
