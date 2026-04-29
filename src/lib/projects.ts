@@ -32,7 +32,11 @@ export type CreateProjectInput = {
   slug?: string;
   description?: string | null;
   entryPath?: string;
+  /** A .zip of static files OR a single .html file. The shape is detected
+   *  from the buffer's magic bytes; `originalFilename` is used to validate
+   *  single-file uploads. */
   zipBuffer: ArrayBuffer;
+  originalFilename?: string;
   passwords?: Array<{ label: string; password: string }>;
   /** auto-suffix: append `-2`, `-3`… on collision (dashboard default).
    *  reject: throw SlugTakenError on collision (API default). */
@@ -84,13 +88,57 @@ type PreparedUpload = {
   entryPath: string;
 };
 
-// Parse + validate the zip, strip macOS cruft and any single wrapping folder,
-// resolve the entry path. Doesn't touch DB or Blob — pure transformation.
+// Detect a zip from its magic bytes (PK\x03\x04 / PK\x05\x06 / PK\x07\x08).
+// Avoids relying on filename or MIME, both of which lie sometimes.
+function isZipBuffer(buf: ArrayBuffer): boolean {
+  if (buf.byteLength < 4) return false;
+  const v = new Uint8Array(buf, 0, 4);
+  return (
+    v[0] === 0x50 &&
+    v[1] === 0x4b &&
+    (v[2] === 0x03 || v[2] === 0x05 || v[2] === 0x07)
+  );
+}
+
+// Single-file upload (currently HTML only — wrap as a one-file project
+// stored at index.html so /p/<slug>/ resolves cleanly).
+function prepareSingleFile(
+  buffer: ArrayBuffer,
+  originalFilename: string | undefined,
+): PreparedUpload {
+  const filename = (originalFilename ?? "").toLowerCase();
+  const isHtml = filename.endsWith(".html") || filename.endsWith(".htm");
+  if (!isHtml) {
+    throw new ZipError(
+      "Single-file uploads must be .html or .htm. For other formats, send a zip.",
+    );
+  }
+  if (buffer.byteLength > MAX_TOTAL_BYTES) {
+    throw new ZipError(`File exceeds max size (${MAX_TOTAL_BYTES} bytes)`);
+  }
+  return {
+    files: [
+      {
+        relPath: "index.html",
+        bytes: new Uint8Array(buffer),
+        contentType: "text/html; charset=utf-8",
+      },
+    ],
+    entryPath: "index.html",
+  };
+}
+
+// Parse + validate the upload (zip or single html), strip macOS cruft and
+// any single wrapping folder, resolve the entry path. Pure transformation.
 async function prepareUpload(
-  zipBuffer: ArrayBuffer,
+  buffer: ArrayBuffer,
   entryHint: string | undefined,
+  originalFilename?: string,
 ): Promise<PreparedUpload> {
-  const zip = await JSZip.loadAsync(zipBuffer);
+  if (!isZipBuffer(buffer)) {
+    return prepareSingleFile(buffer, originalFilename);
+  }
+  const zip = await JSZip.loadAsync(buffer);
 
   const isCruft = (name: string) =>
     name.startsWith("__MACOSX/") ||
@@ -198,6 +246,7 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
   const { files, entryPath } = await prepareUpload(
     input.zipBuffer,
     input.entryPath,
+    input.originalFilename,
   );
 
   // Create DB row first so we have a stable id even if Blob put fails.
@@ -254,6 +303,7 @@ export async function replaceProjectFiles(
   projectId: string,
   zipBuffer: ArrayBuffer,
   entryHint?: string,
+  originalFilename?: string,
 ): Promise<Project> {
   const found = await db
     .select()
@@ -266,6 +316,7 @@ export async function replaceProjectFiles(
   const { files, entryPath } = await prepareUpload(
     zipBuffer,
     entryHint ?? project.entryPath,
+    originalFilename,
   );
 
   // Wipe existing blobs + file rows, but keep the project + passwords + logs.

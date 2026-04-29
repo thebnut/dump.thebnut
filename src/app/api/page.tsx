@@ -99,18 +99,39 @@ curl -sSL https://dump.thebnut.com/dump-thebnut.skill.md \\
       <Section label="upload — multipart/form-data">
         <P>
           The <Code>POST /projects</Code> and <Code>POST /projects/{`{slug}`}/zip</Code>{" "}
-          endpoints take{" "}
-          <Code>multipart/form-data</Code>. Other endpoints take JSON.
+          endpoints take <Code>multipart/form-data</Code>. Other endpoints
+          take JSON.
+        </P>
+        <P>
+          <span className="text-neutral-500">
+            <span className="text-neutral-600">// </span>
+            the upload field accepts <Code>.zip</Code> (static folder) OR{" "}
+            <Code>.html</Code>/<Code>.htm</Code> (single file — handy for
+            AI-generated mockups). single-html uploads are stored at{" "}
+            <Code>index.html</Code>.
+          </span>
         </P>
         <Table
           rows={[
             ["title", "required", "shown on the dashboard"],
-            ["zip", "required (file)", ".zip of static files; 50 MB / 200 file cap"],
+            [
+              "file",
+              "required",
+              ".zip OR .html; 50 MB cap (also accepts legacy 'zip')",
+            ],
             ["slug", "optional", "url path; if blank, derived from title"],
             ["description", "optional", ""],
-            ["entryPath", "optional", "default index.html → first .html"],
+            [
+              "entryPath",
+              "optional",
+              "default index.html → first .html (zip only)",
+            ],
             ["password", "optional", "if set, project is gated"],
-            ["passwordLabel", "optional", "label shown in access log; default 'default'"],
+            [
+              "passwordLabel",
+              "optional",
+              "label shown in access log; default 'default'",
+            ],
           ]}
         />
       </Section>
@@ -132,18 +153,25 @@ curl -sSL https://dump.thebnut.com/dump-thebnut.skill.md \\
       </Section>
 
       <Section label="curl recipes">
-        <Sub>Create a project</Sub>
+        <Sub>Create from a zip</Sub>
         <Pre>{`curl -X POST https://dump.thebnut.com/api/v1/projects \\
   -H "Authorization: Bearer $DUMP_TOKEN" \\
   -F "title=Marketing v3" \\
   -F "slug=marketing-v3" \\
   -F "entryPath=index.html" \\
-  -F "zip=@./marketing-v3.zip"`}</Pre>
+  -F "file=@./marketing-v3.zip"`}</Pre>
+
+        <Sub>Create from a single HTML file</Sub>
+        <Pre>{`curl -X POST https://dump.thebnut.com/api/v1/projects \\
+  -H "Authorization: Bearer $DUMP_TOKEN" \\
+  -F "title=Quick mockup" \\
+  -F "file=@./mockup.html"`}</Pre>
 
         <Sub>Re-upload (wipe + replace)</Sub>
         <Pre>{`curl -X POST https://dump.thebnut.com/api/v1/projects/marketing-v3/zip \\
   -H "Authorization: Bearer $DUMP_TOKEN" \\
-  -F "zip=@./marketing-v3.zip"`}</Pre>
+  -F "file=@./marketing-v3.zip"
+# (also accepts a single .html for the same project)`}</Pre>
 
         <Sub>List projects</Sub>
         <Pre>{`curl https://dump.thebnut.com/api/v1/projects \\
@@ -164,15 +192,19 @@ curl -sSL https://dump.thebnut.com/dump-thebnut.skill.md \\
         <P>
           Drop this in a Claude Code conversation to upload from any folder:
         </P>
-        <Pre>{`# zip the folder you want to publish
+        <Pre>{`# from a folder
 cd path/to/prototype
 zip -r /tmp/dump.zip . -x "*.DS_Store" "__MACOSX/*"
-
-# upload it (DUMP_TOKEN in your shell env)
 curl -sS -X POST https://dump.thebnut.com/api/v1/projects \\
   -H "Authorization: Bearer $DUMP_TOKEN" \\
   -F "title=$(basename $PWD)" \\
-  -F "zip=@/tmp/dump.zip" | jq .project.url`}</Pre>
+  -F "file=@/tmp/dump.zip" | jq .project.url
+
+# or from a single HTML file
+curl -sS -X POST https://dump.thebnut.com/api/v1/projects \\
+  -H "Authorization: Bearer $DUMP_TOKEN" \\
+  -F "title=ai-mockup" \\
+  -F "file=@./mockup.html" | jq .project.url`}</Pre>
       </Section>
 
       <p className="text-xs text-neutral-600 pt-2">
