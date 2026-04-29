@@ -128,6 +128,74 @@ function prepareSingleFile(
   };
 }
 
+// macOS resource forks, .DS_Store, Windows Thumbs.db — drop on sight.
+function isCruft(name: string): boolean {
+  return (
+    name.startsWith("__MACOSX/") ||
+    name.endsWith(".DS_Store") ||
+    name.split("/").some((seg) => seg === "Thumbs.db")
+  );
+}
+
+// If every entry shares one top-level folder (e.g. "reference-mockup/"),
+// return that folder so it can be stripped from stored paths.
+function detectStripPrefix(entries: JSZip.JSZipObject[]): string {
+  const tops = new Set(
+    entries.map((f) => {
+      const parts = f.name.split("/");
+      return parts.length > 1 ? parts[0] : "";
+    }),
+  );
+  return tops.size === 1 && !tops.has("") ? `${[...tops][0]}/` : "";
+}
+
+// Walk zip entries, normalise paths, enforce the byte cap.
+async function extractZipFiles(
+  fileEntries: JSZip.JSZipObject[],
+): Promise<PreparedFile[]> {
+  const stripPrefix = detectStripPrefix(fileEntries);
+  let totalBytes = 0;
+  const files: PreparedFile[] = [];
+  for (const entry of fileEntries) {
+    const namePart = stripPrefix
+      ? entry.name.slice(stripPrefix.length)
+      : entry.name;
+    const rel = safeRelative(namePart);
+    if (!rel) continue;
+    const bytes = await entry.async("uint8array");
+    totalBytes += bytes.byteLength;
+    if (totalBytes > MAX_TOTAL_BYTES) {
+      throw new ZipError(
+        `Zip exceeds max total size (${MAX_TOTAL_BYTES} bytes)`,
+      );
+    }
+    files.push({ relPath: rel, bytes, contentType: contentTypeFor(rel) });
+  }
+  return files;
+}
+
+// Resolve the project's entry file. With a hint, try exact match then
+// basename fallback. Without, prefer index.html → first .html → first file.
+function resolveEntryPath(
+  files: PreparedFile[],
+  hint: string | undefined,
+): string {
+  const trimmed = hint?.trim();
+  if (!trimmed) {
+    if (files.find((f) => f.relPath === "index.html")) return "index.html";
+    const firstHtml = files.find((f) => /\.html?$/i.test(f.relPath));
+    return firstHtml?.relPath ?? files[0].relPath;
+  }
+  const normalized = safeRelative(trimmed);
+  if (!normalized) return "index.html";
+  if (files.find((f) => f.relPath === normalized)) return normalized;
+  const base = normalized.split("/").pop();
+  const byBasename = base
+    ? files.find((f) => f.relPath.split("/").pop() === base)
+    : null;
+  return byBasename?.relPath ?? normalized;
+}
+
 // Parse + validate the upload (zip or single html), strip macOS cruft and
 // any single wrapping folder, resolve the entry path. Pure transformation.
 async function prepareUpload(
@@ -139,73 +207,18 @@ async function prepareUpload(
     return prepareSingleFile(buffer, originalFilename);
   }
   const zip = await JSZip.loadAsync(buffer);
-
-  const isCruft = (name: string) =>
-    name.startsWith("__MACOSX/") ||
-    name.endsWith(".DS_Store") ||
-    name.split("/").some((seg) => seg === "Thumbs.db");
-
   const fileEntries = Object.values(zip.files).filter(
     (f) => !f.dir && !isCruft(f.name),
   );
   if (fileEntries.length === 0) throw new ZipError("Zip contains no files");
-  if (fileEntries.length > MAX_FILES)
+  if (fileEntries.length > MAX_FILES) {
     throw new ZipError(`Zip exceeds max file count (${MAX_FILES})`);
-
-  const tops = new Set(
-    fileEntries.map((f) => {
-      const parts = f.name.split("/");
-      return parts.length > 1 ? parts[0] : "";
-    }),
-  );
-  const stripPrefix =
-    tops.size === 1 && !tops.has("") ? `${[...tops][0]}/` : "";
-
-  let totalBytes = 0;
-  const files: PreparedFile[] = [];
-
-  for (const entry of fileEntries) {
-    const namePart = stripPrefix
-      ? entry.name.slice(stripPrefix.length)
-      : entry.name;
-    const rel = safeRelative(namePart);
-    if (!rel) continue;
-    const bytes = await entry.async("uint8array");
-    totalBytes += bytes.byteLength;
-    if (totalBytes > MAX_TOTAL_BYTES)
-      throw new ZipError(
-        `Zip exceeds max total size (${MAX_TOTAL_BYTES} bytes)`,
-      );
-    files.push({ relPath: rel, bytes, contentType: contentTypeFor(rel) });
   }
 
+  const files = await extractZipFiles(fileEntries);
   if (files.length === 0) throw new ZipError("No usable files in zip");
 
-  let entryPath = entryHint?.trim();
-  if (entryPath) {
-    const normalized = safeRelative(entryPath);
-    const exact = normalized
-      ? files.find((f) => f.relPath === normalized)
-      : null;
-    if (!exact && normalized) {
-      const base = normalized.split("/").pop();
-      const byBasename = base
-        ? files.find((f) => f.relPath.split("/").pop() === base)
-        : null;
-      entryPath = byBasename?.relPath ?? normalized;
-    } else {
-      entryPath = normalized ?? "index.html";
-    }
-  } else {
-    const hasIndex = files.find((f) => f.relPath === "index.html");
-    if (hasIndex) entryPath = "index.html";
-    else {
-      const firstHtml = files.find((f) => /\.html?$/i.test(f.relPath));
-      entryPath = firstHtml?.relPath ?? files[0].relPath;
-    }
-  }
-
-  return { files, entryPath };
+  return { files, entryPath: resolveEntryPath(files, entryHint) };
 }
 
 async function uploadFilesToBlob(
