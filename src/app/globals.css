@@ -1,8 +1,13 @@
 @import "tailwindcss";
 
+/* Dark mode is canonical for dump.thebnut. The design system explicitly
+   doesn't ship a light theme — locking the page to dark prevents OS
+   light-mode from leaking white through translucent surfaces. */
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
+  --background: #0a0a0a;     /* neutral-950 */
+  --foreground: #ededed;     /* neutral-100 */
 }
 
 @theme inline {
@@ -12,15 +17,19 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+html,
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+}
+
+body {
+  font-family:
+    var(--font-geist-sans),
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
 }
