@@ -19,20 +19,20 @@ export default function ApiDocsPage() {
         </p>
       </header>
 
-      <section className="rounded-xl border border-[#39ff88]/40 bg-[rgba(57,255,136,0.05)] p-5 shadow-[0_0_24px_-8px_rgba(57,255,136,0.45)]">
+      <section className="rounded-xl border border-[#39ff88]/40 bg-[rgba(57,255,136,0.05)] p-5 shadow-[0_0_24px_-8px_rgba(57,255,136,0.45)] space-y-5">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="min-w-0">
             <p className="text-xs text-[#5fff9f] uppercase tracking-[0.1em]">
               ● claude / openclaw skill
             </p>
             <p className="text-sm text-neutral-100 mt-1.5">
-              Drop a single .md file into the agent&rsquo;s skills directory.
+              Download and install this skill.
             </p>
             <p className="text-xs text-neutral-500 mt-1">
               <span className="text-neutral-600">// </span>
-              once installed, the agent uploads any folder when the user asks
-              to &ldquo;dump this&rdquo;. only requires <Code>DUMP_TOKEN</Code>{" "}
-              in the env.
+              the agent uploads any folder or html file when you say
+              &ldquo;dump this&rdquo;. only requires{" "}
+              <Code>DUMP_TOKEN</Code> in the env.
             </p>
           </div>
           <a
@@ -43,25 +43,26 @@ export default function ApiDocsPage() {
             [download skill]
           </a>
         </div>
-        <div className="mt-4 space-y-2">
+
+        <div className="border-t border-dashed border-[#39ff88]/30 pt-4">
           <p className="text-[11px] uppercase tracking-wide text-neutral-500">
-            install (claude code)
+            or just give your agent the url
           </p>
-          <Pre>{`mkdir -p ~/.claude/skills
-curl -sSL https://dump.thebnut.com/dump-thebnut.skill.md \\
-  -o ~/.claude/skills/dump-thebnut.md`}</Pre>
-          <p className="text-[11px] uppercase tracking-wide text-neutral-500 pt-2">
-            install (openclaw / project-scoped)
-          </p>
-          <Pre>{`mkdir -p .claude/skills
-curl -sSL https://dump.thebnut.com/dump-thebnut.skill.md \\
-  -o .claude/skills/dump-thebnut.md`}</Pre>
-          <p className="text-xs text-neutral-500 pt-1">
+          <div className="mt-2 rounded-lg border border-neutral-800 bg-neutral-950/80 p-4 space-y-2">
+            <p className="text-[11px] uppercase tracking-[0.08em] text-neutral-600">
+              you ▸ claude
+            </p>
+            <p className="text-sm text-neutral-100 leading-relaxed">
+              install this skill so you can publish prototypes for me:
+              <br />
+              <Code>https://dump.thebnut.com/dump-thebnut.skill.md</Code>
+            </p>
+          </div>
+          <p className="text-xs text-neutral-500 mt-2">
             <span className="text-neutral-600">// </span>
-            then set <Code>DUMP_TOKEN</Code> in your shell with a token from{" "}
-            <Lk href="/settings">/settings</Lk>. The agent will trigger when
-            you say &ldquo;dump this folder&rdquo;, &ldquo;upload this
-            prototype&rdquo;, etc.
+            then create a token at{" "}
+            <Lk href="/settings">/settings</Lk> and tell the agent the
+            value when it asks.
           </p>
         </div>
       </section>
