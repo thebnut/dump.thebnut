@@ -71,7 +71,7 @@ export default async function AdminPage({
         </Link>
         <h1 className="text-2xl font-semibold mt-1">$ admin</h1>
         <p className="text-xs text-neutral-500 mt-1">
-          <span className="text-neutral-600">// </span>users + all projects
+          <span className="text-neutral-600">{"// "}</span>users + all projects
           across the dump.
         </p>
       </div>
@@ -80,7 +80,7 @@ export default async function AdminPage({
         <TermRule label={`users · ${allUsers.length}`} />
         <div className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-6 space-y-4">
           {allUsers.length === 0 ? (
-            <p className="text-sm text-neutral-600">// no users yet.</p>
+            <p className="text-sm text-neutral-600">{"// no users yet."}</p>
           ) : (
             <ul className="-mx-2">
               {allUsers.map((u, i) => (
@@ -158,7 +158,7 @@ export default async function AdminPage({
         <TermRule label={`all projects · ${allProjects.length}`} />
         <div className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-6">
           {allProjects.length === 0 ? (
-            <p className="text-sm text-neutral-600">// no projects yet.</p>
+            <p className="text-sm text-neutral-600">{"// no projects yet."}</p>
           ) : (
             <ul className="-mx-2">
               {allProjects.map((p, i) => (

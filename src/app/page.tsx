@@ -106,7 +106,7 @@ function EmptyState() {
   return (
     <div className="p-10 flex flex-col items-center gap-3 text-neutral-400">
       <p className="text-sm">
-        <span className="text-neutral-600">// </span>nothing in your dump yet.
+        <span className="text-neutral-600">{"// "}</span>nothing in your dump yet.
       </p>
       <Link
         href="/projects/new"

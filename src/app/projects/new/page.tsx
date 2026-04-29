@@ -67,7 +67,7 @@ export default async function NewProjectPage({
           </Link>
           <h1 className="text-2xl font-semibold mt-1">$ new project</h1>
           <p className="text-xs text-neutral-500 mt-1">
-            <span className="text-neutral-600">// </span>upload a zip of static
+            <span className="text-neutral-600">{"// "}</span>upload a zip of static
             files. 50 MB / 200 file limit.
           </p>
         </div>

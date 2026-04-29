@@ -14,7 +14,7 @@ export default function ApiDocsPage() {
         <Logo size="md" href="/" />
         <h1 className="text-2xl font-semibold mt-3">$ api · v1</h1>
         <p className="text-xs text-neutral-500 mt-1">
-          <span className="text-neutral-600">// </span>
+          <span className="text-neutral-600">{"// "}</span>
           programmatic upload + management. for agents, scripts, ci.
         </p>
       </header>
@@ -29,7 +29,7 @@ export default function ApiDocsPage() {
               Download and install this skill.
             </p>
             <p className="text-xs text-neutral-500 mt-1">
-              <span className="text-neutral-600">// </span>
+              <span className="text-neutral-600">{"// "}</span>
               the agent uploads any folder or html file when you say
               &ldquo;dump this&rdquo;. only requires{" "}
               <Code>DUMP_TOKEN</Code> in the env.
@@ -59,7 +59,7 @@ export default function ApiDocsPage() {
             </p>
           </div>
           <p className="text-xs text-neutral-500 mt-2">
-            <span className="text-neutral-600">// </span>
+            <span className="text-neutral-600">{"// "}</span>
             then create a token at{" "}
             <Lk href="/settings">/settings</Lk> and tell the agent the
             value when it asks.
@@ -110,7 +110,7 @@ export default function ApiDocsPage() {
         </P>
         <P>
           <span className="text-neutral-500">
-            <span className="text-neutral-600">// </span>
+            <span className="text-neutral-600">{"// "}</span>
             the upload field accepts <Code>.zip</Code> (static folder) OR{" "}
             <Code>.html</Code>/<Code>.htm</Code> (single file — handy for
             AI-generated mockups). single-html uploads are stored at{" "}
@@ -214,7 +214,7 @@ curl -sS -X POST https://dump.thebnut.com/api/v1/projects \\
       </Section>
 
       <p className="text-xs text-neutral-600 pt-2">
-        <span className="text-neutral-700">// </span>
+        <span className="text-neutral-700">{"// "}</span>
         v1 — additive changes only. anything breaking will land at /api/v2.
       </p>
     </main>
