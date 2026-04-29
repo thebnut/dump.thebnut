@@ -86,6 +86,28 @@ export const accessLogs = pgTable(
   (t) => [index("access_logs_project_idx").on(t.projectId, t.ts)],
 );
 
+export const apiTokens = pgTable(
+  "api_tokens",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    prefix: text("prefix").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("api_tokens_hash_idx").on(t.tokenHash),
+    index("api_tokens_user_idx").on(t.userId),
+  ],
+);
+
 export const projectFiles = pgTable(
   "project_files",
   {
@@ -147,3 +169,4 @@ export type Project = typeof projects.$inferSelect;
 export type ProjectPassword = typeof projectPasswords.$inferSelect;
 export type AccessLog = typeof accessLogs.$inferSelect;
 export type ProjectFile = typeof projectFiles.$inferSelect;
+export type ApiToken = typeof apiTokens.$inferSelect;

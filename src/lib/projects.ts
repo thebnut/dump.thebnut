@@ -12,6 +12,20 @@ import {
 } from "./db/schema";
 import { contentTypeFor, safeRelative, slugify } from "./util";
 
+export class SlugTakenError extends Error {
+  constructor(slug: string) {
+    super(`Slug already taken: ${slug}`);
+    this.name = "SlugTakenError";
+  }
+}
+
+export class ZipError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ZipError";
+  }
+}
+
 export type CreateProjectInput = {
   ownerId: string;
   title: string;
@@ -20,6 +34,9 @@ export type CreateProjectInput = {
   entryPath?: string;
   zipBuffer: ArrayBuffer;
   passwords?: Array<{ label: string; password: string }>;
+  /** auto-suffix: append `-2`, `-3`… on collision (dashboard default).
+   *  reject: throw SlugTakenError on collision (API default). */
+  collisionMode?: "auto-suffix" | "reject";
 };
 
 export type UpdateProjectInput = {
@@ -47,17 +64,34 @@ async function ensureUniqueSlug(base: string): Promise<string> {
   }
 }
 
-export async function createProject(input: CreateProjectInput): Promise<Project> {
-  const baseSlug = slugify(input.slug || input.title);
-  if (!baseSlug) throw new Error("Slug must contain at least one character");
-  const slug = await ensureUniqueSlug(baseSlug);
-  const blobPrefix = `projects/${slug}`;
+async function slugIsTaken(slug: string): Promise<boolean> {
+  const rows = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(eq(projects.slug, slug))
+    .limit(1);
+  return !!rows[0];
+}
 
-  const zip = await JSZip.loadAsync(input.zipBuffer);
+type PreparedFile = {
+  relPath: string;
+  bytes: Uint8Array;
+  contentType: string;
+};
 
-  // Filter out: directories, macOS resource forks, .DS_Store, hidden dotfiles
-  // at root. Do this BEFORE computing the top-level prefix so the macOS
-  // Compress menu's __MACOSX/ shadow tree doesn't prevent stripping.
+type PreparedUpload = {
+  files: PreparedFile[];
+  entryPath: string;
+};
+
+// Parse + validate the zip, strip macOS cruft and any single wrapping folder,
+// resolve the entry path. Doesn't touch DB or Blob — pure transformation.
+async function prepareUpload(
+  zipBuffer: ArrayBuffer,
+  entryHint: string | undefined,
+): Promise<PreparedUpload> {
+  const zip = await JSZip.loadAsync(zipBuffer);
+
   const isCruft = (name: string) =>
     name.startsWith("__MACOSX/") ||
     name.endsWith(".DS_Store") ||
@@ -66,11 +100,10 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
   const fileEntries = Object.values(zip.files).filter(
     (f) => !f.dir && !isCruft(f.name),
   );
-  if (fileEntries.length === 0) throw new Error("Zip contains no files");
+  if (fileEntries.length === 0) throw new ZipError("Zip contains no files");
   if (fileEntries.length > MAX_FILES)
-    throw new Error(`Zip exceeds max file count (${MAX_FILES})`);
+    throw new ZipError(`Zip exceeds max file count (${MAX_FILES})`);
 
-  // Strip a single common top-level folder if present (e.g. "reference-mockup/")
   const tops = new Set(
     fileEntries.map((f) => {
       const parts = f.name.split("/");
@@ -81,11 +114,7 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
     tops.size === 1 && !tops.has("") ? `${[...tops][0]}/` : "";
 
   let totalBytes = 0;
-  const toUpload: Array<{
-    relPath: string;
-    bytes: Uint8Array;
-    contentType: string;
-  }> = [];
+  const files: PreparedFile[] = [];
 
   for (const entry of fileEntries) {
     const namePart = stripPrefix
@@ -96,50 +125,82 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
     const bytes = await entry.async("uint8array");
     totalBytes += bytes.byteLength;
     if (totalBytes > MAX_TOTAL_BYTES)
-      throw new Error(`Zip exceeds max total size (${MAX_TOTAL_BYTES} bytes)`);
-    toUpload.push({
-      relPath: rel,
-      bytes,
-      contentType: contentTypeFor(rel),
-    });
+      throw new ZipError(
+        `Zip exceeds max total size (${MAX_TOTAL_BYTES} bytes)`,
+      );
+    files.push({ relPath: rel, bytes, contentType: contentTypeFor(rel) });
   }
 
-  if (toUpload.length === 0) throw new Error("No usable files in zip");
+  if (files.length === 0) throw new ZipError("No usable files in zip");
 
-  // Determine entry path (default index.html → first .html → first file)
-  let entryPath = input.entryPath?.trim();
+  let entryPath = entryHint?.trim();
   if (entryPath) {
-    // Be forgiving: if the user typed an entry that doesn't match a stored
-    // path verbatim, try the basename match as a fallback so they don't have
-    // to know whether the upload kept a wrapping folder.
     const normalized = safeRelative(entryPath);
     const exact = normalized
-      ? toUpload.find((f) => f.relPath === normalized)
+      ? files.find((f) => f.relPath === normalized)
       : null;
     if (!exact && normalized) {
       const base = normalized.split("/").pop();
       const byBasename = base
-        ? toUpload.find((f) => f.relPath.split("/").pop() === base)
+        ? files.find((f) => f.relPath.split("/").pop() === base)
         : null;
       entryPath = byBasename?.relPath ?? normalized;
     } else {
       entryPath = normalized ?? "index.html";
     }
-  }
-  if (!entryPath) {
-    const hasIndex = toUpload.find((f) => f.relPath === "index.html");
+  } else {
+    const hasIndex = files.find((f) => f.relPath === "index.html");
     if (hasIndex) entryPath = "index.html";
     else {
-      const firstHtml = toUpload.find((f) =>
-        /\.html?$/i.test(f.relPath),
-      );
-      entryPath = firstHtml?.relPath ?? toUpload[0].relPath;
+      const firstHtml = files.find((f) => /\.html?$/i.test(f.relPath));
+      entryPath = firstHtml?.relPath ?? files[0].relPath;
     }
-  } else {
-    entryPath = safeRelative(entryPath) || "index.html";
   }
 
-  // Create DB row first so we have a stable id even if blob put fails (we'll cleanup)
+  return { files, entryPath };
+}
+
+async function uploadFilesToBlob(
+  blobPrefix: string,
+  prepared: PreparedFile[],
+) {
+  return Promise.all(
+    prepared.map(async (f) => {
+      const result = await put(
+        `${blobPrefix}/${f.relPath}`,
+        Buffer.from(f.bytes),
+        {
+          access: "public",
+          contentType: f.contentType,
+          addRandomSuffix: false,
+          allowOverwrite: true,
+        },
+      );
+      return { ...f, url: result.url };
+    }),
+  );
+}
+
+export async function createProject(input: CreateProjectInput): Promise<Project> {
+  const baseSlug = slugify(input.slug || input.title);
+  if (!baseSlug) throw new Error("Slug must contain at least one character");
+
+  const collisionMode = input.collisionMode ?? "auto-suffix";
+  let slug: string;
+  if (collisionMode === "auto-suffix") {
+    slug = await ensureUniqueSlug(baseSlug);
+  } else {
+    if (await slugIsTaken(baseSlug)) throw new SlugTakenError(baseSlug);
+    slug = baseSlug;
+  }
+
+  const blobPrefix = `projects/${slug}`;
+  const { files, entryPath } = await prepareUpload(
+    input.zipBuffer,
+    input.entryPath,
+  );
+
+  // Create DB row first so we have a stable id even if Blob put fails.
   const inserted = await db
     .insert(projects)
     .values({
@@ -155,23 +216,7 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
   const project = inserted[0];
 
   try {
-    // Upload all files to Vercel Blob in parallel
-    const uploaded = await Promise.all(
-      toUpload.map(async (f) => {
-        const result = await put(
-          `${blobPrefix}/${f.relPath}`,
-          Buffer.from(f.bytes),
-          {
-            access: "public",
-            contentType: f.contentType,
-            addRandomSuffix: false,
-            allowOverwrite: true,
-          },
-        );
-        return { ...f, url: result.url };
-      }),
-    );
-
+    const uploaded = await uploadFilesToBlob(blobPrefix, files);
     if (uploaded.length > 0) {
       await db.insert(projectFiles).values(
         uploaded.map((u) => ({
@@ -184,7 +229,6 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
       );
     }
 
-    // Add passwords if provided
     if (input.passwords && input.passwords.length > 0) {
       const hashed = await Promise.all(
         input.passwords.map(async (p) => ({
@@ -198,10 +242,54 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
 
     return project;
   } catch (e) {
-    // Best-effort cleanup
     await deleteProjectArtifacts(project.id, blobPrefix).catch(() => {});
     throw e;
   }
+}
+
+// Wipe + replace all files for an existing project. Resolves a new entry
+// path if `entryHint` is provided, otherwise keeps the current entry if
+// the new zip still contains a file at that path; otherwise re-derives.
+export async function replaceProjectFiles(
+  projectId: string,
+  zipBuffer: ArrayBuffer,
+  entryHint?: string,
+): Promise<Project> {
+  const found = await db
+    .select()
+    .from(projects)
+    .where(eq(projects.id, projectId))
+    .limit(1);
+  const project = found[0];
+  if (!project) throw new Error("project not found");
+
+  const { files, entryPath } = await prepareUpload(
+    zipBuffer,
+    entryHint ?? project.entryPath,
+  );
+
+  // Wipe existing blobs + file rows, but keep the project + passwords + logs.
+  await deleteProjectArtifacts(project.id, project.blobPrefix);
+
+  const uploaded = await uploadFilesToBlob(project.blobPrefix, files);
+  if (uploaded.length > 0) {
+    await db.insert(projectFiles).values(
+      uploaded.map((u) => ({
+        projectId: project.id,
+        path: u.relPath,
+        blobUrl: u.url,
+        contentType: u.contentType,
+        size: u.bytes.byteLength,
+      })),
+    );
+  }
+
+  const updated = await db
+    .update(projects)
+    .set({ entryPath, updatedAt: new Date() })
+    .where(eq(projects.id, project.id))
+    .returning();
+  return updated[0];
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
@@ -217,7 +305,6 @@ export async function deleteProject(projectId: string): Promise<void> {
 }
 
 async function deleteProjectArtifacts(projectId: string, blobPrefix: string) {
-  // List & delete all blobs under prefix
   let cursor: string | undefined;
   do {
     const page = await list({ prefix: blobPrefix, cursor });
