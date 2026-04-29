@@ -31,19 +31,29 @@ export default async function LoginPage({ searchParams }: Props) {
   }
 
   return (
-    <main className="min-h-dvh grid place-items-center bg-neutral-950 text-neutral-100 p-6">
+    <main className="min-h-dvh grid place-items-center bg-neutral-950 text-neutral-100 p-6 font-mono">
       <form
         action={login}
-        className="w-full max-w-sm space-y-4 rounded-2xl border border-neutral-800 bg-neutral-900/50 p-8"
+        className="w-full max-w-md space-y-5 rounded-xl border border-neutral-800 bg-neutral-900/50 p-7"
       >
-        <div className="space-y-1">
+        <div className="flex items-center justify-between">
           <Logo size="md" />
-          <p className="text-sm text-neutral-400">Sign in to view your dump.</p>
+          <span className="text-[11px] text-neutral-500 uppercase tracking-[0.1em]">
+            auth · v1
+          </span>
         </div>
 
-        <div className="space-y-2">
-          <label htmlFor="email" className="text-xs text-neutral-400">
-            Email
+        <pre className="text-xs text-neutral-500 m-0 whitespace-pre-wrap">
+          {`$ ssh dump.thebnut.com
+# sign in to view your dump`}
+        </pre>
+
+        <div className="space-y-1.5">
+          <label
+            htmlFor="email"
+            className="text-xs uppercase tracking-wide text-neutral-500"
+          >
+            email
           </label>
           <input
             id="email"
@@ -51,13 +61,16 @@ export default async function LoginPage({ searchParams }: Props) {
             type="email"
             required
             autoComplete="email"
-            className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-500"
+            className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#39ff88] focus:shadow-[0_0_0_1px_#39ff88,0_0_12px_-4px_rgba(57,255,136,0.55)]"
           />
         </div>
 
-        <div className="space-y-2">
-          <label htmlFor="password" className="text-xs text-neutral-400">
-            Password
+        <div className="space-y-1.5">
+          <label
+            htmlFor="password"
+            className="text-xs uppercase tracking-wide text-neutral-500"
+          >
+            password
           </label>
           <input
             id="password"
@@ -65,19 +78,19 @@ export default async function LoginPage({ searchParams }: Props) {
             type="password"
             required
             autoComplete="current-password"
-            className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-500"
+            className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#39ff88] focus:shadow-[0_0_0_1px_#39ff88,0_0_12px_-4px_rgba(57,255,136,0.55)]"
           />
         </div>
 
         {error ? (
-          <p className="text-xs text-red-400">Invalid email or password.</p>
+          <p className="text-xs text-red-400">! invalid email or password.</p>
         ) : null}
 
         <button
           type="submit"
-          className="w-full rounded-lg bg-white text-neutral-900 px-3 py-2 text-sm font-medium hover:bg-neutral-200 transition"
+          className="w-full rounded-lg border border-[#39ff88] bg-[#39ff88] text-neutral-950 px-3.5 py-2 text-sm font-semibold hover:bg-[#5fff9f] transition shadow-[0_0_16px_-4px_rgba(57,255,136,0.55)] hover:shadow-[0_0_22px_-2px_rgba(57,255,136,0.55)]"
         >
-          Sign in
+          [ sign in ]
         </button>
       </form>
     </main>

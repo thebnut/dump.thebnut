@@ -1,20 +1,31 @@
 @import "tailwindcss";
 
-/* Dark mode is canonical for dump.thebnut. The design system explicitly
-   doesn't ship a light theme — locking the page to dark prevents OS
-   light-mode from leaking white through translucent surfaces. */
+/* dump.thebnut design system — Direction B: Terminal.
+   Mono is primary; neon-green is the brand accent. */
 
 :root {
   color-scheme: dark;
-  --background: #0a0a0a;     /* neutral-950 */
-  --foreground: #ededed;     /* neutral-100 */
+  --background: #0a0a0a;
+  --foreground: #ededed;
+
+  /* Neon brand accent (replaces white as primary action color) */
+  --neon-300: #5fff9f;
+  --neon-400: #39ff88;
+  --neon-500: #16d96a;
+  --neon-glow: rgba(57, 255, 136, 0.35);
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --color-neon-300: var(--neon-300);
+  --color-neon-400: var(--neon-400);
+  --color-neon-500: var(--neon-500);
+
+  /* Mono is the primary font. Sans is retained for rare prose. */
+  --font-sans: var(--font-geist-mono);
   --font-mono: var(--font-geist-mono);
+  --font-prose: var(--font-geist-sans);
 }
 
 html,
@@ -25,11 +36,35 @@ body {
 
 body {
   font-family:
-    var(--font-geist-sans),
-    ui-sans-serif,
-    system-ui,
-    -apple-system,
-    "Segoe UI",
-    Roboto,
-    sans-serif;
+    var(--font-geist-mono),
+    ui-monospace,
+    "SF Mono",
+    Menlo,
+    Monaco,
+    Consolas,
+    monospace;
+  font-feature-settings: "ss01", "tnum";
+}
+
+/* Blinking cursor — the system's only ambient motion. */
+@keyframes dump-blink {
+  0%,
+  50% {
+    opacity: 1;
+  }
+  50.01%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.dump-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 1em;
+  background: var(--neon-400);
+  vertical-align: -2px;
+  margin-left: 2px;
+  animation: dump-blink 1s steps(2, end) infinite;
+  box-shadow: 0 0 6px var(--neon-glow);
 }

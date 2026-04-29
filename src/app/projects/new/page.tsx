@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
 import { createProject } from "@/lib/projects";
+import { TermRule } from "@/components/TermRule";
 
 export default async function NewProjectPage({
   searchParams,
@@ -45,7 +46,6 @@ export default async function NewProjectPage({
       });
       redirect(`/projects/${project.slug}`);
     } catch (e) {
-      // re-throw redirect (Next.js sentinel) so it actually navigates
       if (e instanceof Error && e.message === "NEXT_REDIRECT") throw e;
       const msg = e instanceof Error ? e.message : "unknown";
       redirect(`/projects/new?error=${encodeURIComponent(msg)}`);
@@ -53,116 +53,95 @@ export default async function NewProjectPage({
   }
 
   return (
-    <main className="mx-auto w-full max-w-2xl p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">New project</h1>
-        <Link
-          href="/"
-          className="text-sm text-neutral-400 hover:text-neutral-100"
-        >
-          ← back
-        </Link>
+    <main className="mx-auto w-full max-w-2xl p-6 space-y-6 font-mono">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <Link
+            href="/"
+            className="text-sm text-neutral-500 hover:text-[#39ff88] transition-colors"
+          >
+            ← back
+          </Link>
+          <h1 className="text-2xl font-semibold mt-1">$ new project</h1>
+          <p className="text-xs text-neutral-500 mt-1">
+            <span className="text-neutral-600">// </span>upload a zip of static
+            files. 50 MB / 200 file limit.
+          </p>
+        </div>
       </div>
 
       {sp.error ? (
-        <div className="rounded-lg border border-red-900 bg-red-950/40 px-3 py-2 text-sm text-red-300">
-          {decodeURIComponent(sp.error)}
+        <div className="rounded-lg border border-red-900/40 bg-red-950/40 px-3 py-2 text-sm text-red-300">
+          ! {decodeURIComponent(sp.error)}
         </div>
       ) : null}
 
       <form
         action={create}
         encType="multipart/form-data"
-        className="space-y-5 rounded-2xl border border-neutral-800 bg-neutral-900/40 p-6"
+        className="space-y-5 rounded-xl border border-neutral-800 bg-neutral-900/40 p-6"
       >
-        <Field label="Title" hint="Shown on your dashboard.">
-          <input
-            name="title"
-            required
-            className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-500"
-          />
+        <Field label="title" hint="Shown on your dashboard.">
+          <Input name="title" required />
         </Field>
 
         <Field
-          label="Slug (optional)"
+          label="slug (optional)"
           hint="The URL path. If blank, derived from the title. Letters, numbers, hyphens."
         >
-          <input
-            name="slug"
-            placeholder="auto"
-            className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-neutral-500"
-          />
+          <Input name="slug" placeholder="auto" />
         </Field>
 
-        <Field label="Description (optional)">
-          <input
-            name="description"
-            className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-500"
-          />
+        <Field label="description (optional)">
+          <Input name="description" />
         </Field>
 
         <Field
-          label="Entry file (optional)"
+          label="entry file (optional)"
           hint="The HTML file served when someone hits /p/<slug>/. Defaults to index.html, then first .html in zip."
         >
-          <input
-            name="entryPath"
-            placeholder="index.html"
-            className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-neutral-500"
-          />
+          <Input name="entryPath" placeholder="index.html" />
         </Field>
 
         <Field
-          label="Zip file"
-          hint="Static files only (HTML, CSS, JS, images, fonts). 50 MB / 200 file limit."
+          label="zip file"
+          hint="Static files only (HTML, CSS, JS, images, fonts)."
         >
           <input
             name="zip"
             type="file"
             accept=".zip,application/zip"
             required
-            className="block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-800 file:px-3 file:py-2 file:text-neutral-100 hover:file:bg-neutral-700"
+            className="block w-full text-sm font-mono file:mr-3 file:rounded-lg file:border file:border-neutral-700 file:bg-neutral-800 file:px-3 file:py-2 file:text-neutral-100 file:font-mono hover:file:bg-neutral-700 file:cursor-pointer"
           />
         </Field>
 
-        <fieldset className="space-y-3 border-t border-neutral-800 pt-5">
-          <legend className="text-sm text-neutral-300 -mt-9 bg-neutral-900/40 px-2">
-            Optional password protection
-          </legend>
-          <Field
-            label="Password label"
-            hint="Stored in access logs to identify which password was used. e.g. 'martin', 'launch-team'."
-          >
-            <input
-              name="passwordLabel"
-              placeholder="default"
-              className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-500"
-            />
-          </Field>
-          <Field
-            label="Password"
-            hint="Leave blank to publish unprotected."
-          >
-            <input
-              name="password"
-              type="password"
-              className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-neutral-500"
-            />
-          </Field>
-        </fieldset>
+        <div className="pt-2">
+          <TermRule label="optional password protection" />
+        </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-neutral-800 pt-4">
+        <Field
+          label="password label"
+          hint="Stored in access logs to identify which password was used. e.g. 'martin', 'launch-team'."
+        >
+          <Input name="passwordLabel" placeholder="default" />
+        </Field>
+        <Field label="password" hint="Leave blank to publish unprotected.">
+          <Input name="password" type="password" />
+        </Field>
+
+        <div className="flex items-center justify-end gap-3 border-t border-dashed border-neutral-800 pt-4 mt-1">
           <Link
             href="/"
             className="rounded-lg border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800"
           >
-            Cancel
+            [cancel]
           </Link>
           <button
             type="submit"
-            className="rounded-lg bg-white text-neutral-900 px-3 py-1.5 text-sm font-medium hover:bg-neutral-200"
+            className="rounded-lg border border-[#39ff88] bg-[#39ff88] text-neutral-950 px-3.5 py-1.5 text-sm font-semibold hover:bg-[#5fff9f] shadow-[0_0_16px_-4px_rgba(57,255,136,0.55)] hover:shadow-[0_0_22px_-2px_rgba(57,255,136,0.55)]"
           >
-            Publish
+            [ publish ]
           </button>
         </div>
       </form>
@@ -181,11 +160,22 @@ function Field({
 }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-xs uppercase tracking-wide text-neutral-400">
+      <label className="text-xs uppercase tracking-wide text-neutral-500">
         {label}
       </label>
       {children}
       {hint ? <p className="text-xs text-neutral-500">{hint}</p> : null}
     </div>
+  );
+}
+
+function Input(
+  props: React.InputHTMLAttributes<HTMLInputElement>,
+) {
+  return (
+    <input
+      {...props}
+      className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#39ff88] focus:shadow-[0_0_0_1px_#39ff88,0_0_12px_-4px_rgba(57,255,136,0.55)]"
+    />
   );
 }
