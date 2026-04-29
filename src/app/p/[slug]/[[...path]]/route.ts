@@ -72,14 +72,18 @@ export async function GET(
     });
   }
 
-  // For HTML files, rewrite leading-slash absolute paths to be project-
-  // scoped. This is the common Vite/CRA `base: '/'` problem — bundlers
-  // emit src="/assets/...js", which would resolve to the origin root
-  // instead of /p/<slug>/. We patch on the way out so static prototypes
-  // built without a base path Just Work.
+  // For HTML files, two transforms on the way out:
+  //   1. rewriteHtmlPaths — leading-slash absolute paths (Vite/CRA
+  //      `base: '/'`) get project-scoped.
+  //   2. ensureBaseHref — inject <base href="/p/<slug>/"> so RELATIVE
+  //      links (e.g. <a href="data/foo.csv">) resolve to the project
+  //      regardless of whether the URL has a trailing slash. Next.js
+  //      strips the slash via a 308, which would otherwise make
+  //      relative paths resolve against /p/ instead of /p/<slug>/.
   if (isHtml) {
     const text = await upstream.text();
-    const rewritten = rewriteHtmlPaths(text, slug);
+    let rewritten = rewriteHtmlPaths(text, slug);
+    rewritten = ensureBaseHref(rewritten, `/p/${slug}/`);
     return new NextResponse(rewritten, {
       status: 200,
       headers: {
@@ -126,5 +130,18 @@ export function rewriteHtmlPaths(html: string, slug: string): string {
   return html.replace(
     re,
     (_m, attr: string, quote: string) => `${attr}=${quote}${prefix}`,
+  );
+}
+
+// Inject <base href="..."> into <head> so relative URLs in the page
+// resolve against the project's prefix. Skip if the page already has
+// a <base> tag (the user knows what they want). If there's no <head>,
+// don't touch the document — anything without a head is too weird to
+// patch and probably wasn't going to render correctly anyway.
+export function ensureBaseHref(html: string, baseHref: string): string {
+  if (/<base\b[^>]*\bhref\s*=/i.test(html)) return html;
+  return html.replace(
+    /<head\b[^>]*>/i,
+    (m) => `${m}\n<base href="${baseHref}">`,
   );
 }
