@@ -89,6 +89,11 @@ export default function ApiDocsPage() {
             ["GET", "/api/v1/projects/{slug}/passwords", "list password labels"],
             ["POST", "/api/v1/projects/{slug}/passwords", "add a password"],
             [
+              "PATCH",
+              "/api/v1/projects/{slug}/passwords/{id}",
+              "change a password's value",
+            ],
+            [
               "DELETE",
               "/api/v1/projects/{slug}/passwords/{id}",
               "remove a password",
