@@ -41,11 +41,20 @@ export async function readGateCookie(projectId: string) {
 
 export async function setGateCookie(projectId: string, passwordLabelId: string) {
   const c = await cookies();
+  // Path is `/` (not `/p/`) so the cookie is sent on every request, including
+  // sub-asset requests that arrive at the same handler. The cookie is already
+  // scoped to a single project two ways: its name embeds the project id
+  // (`dt_g_<projectId>`), and its value is HMAC-signed against the project id
+  // (see `verifyGateToken`). Tightening the path to `/p/` is theoretically
+  // sufficient, but in practice we saw cases where the browser didn't send
+  // the cookie on child asset requests (`_shared.css`, `alpine.min.js`),
+  // making the route hand back the gate HTML in place of the asset. A `/`
+  // path eliminates the entire class of path-matching ambiguity.
   c.set(gateCookieName(projectId), makeGateToken(projectId, passwordLabelId), {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",
-    path: `/p/`,
+    path: `/`,
     maxAge: 60 * 60 * 24, // 24h
   });
 }
