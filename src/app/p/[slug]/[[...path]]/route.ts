@@ -34,10 +34,12 @@ export async function GET(
   if (project.isProtected) {
     const ok = await readGateCookie(project.id);
     if (!ok) {
-      // `Sec-Fetch-Dest: document` (and `iframe`, `empty` for some agents
-      // that don't set it accurately) indicates a top-level navigation
-      // where redirecting to the gate is the right behaviour. Everything
-      // else is a sub-resource fetched by the page itself.
+      // `Sec-Fetch-Dest: document` (or `iframe` when embedded) indicates a
+      // top-level navigation where redirecting to the gate is the right
+      // behaviour. Everything else is a sub-resource fetched by the page
+      // itself — `style`, `script`, `image`, `font`, `empty` (fetch()), etc.
+      // If the header is absent (older browsers, curl, scripted clients)
+      // we treat the request as a navigation and let it through to the gate.
       const dest = req.headers.get("sec-fetch-dest");
       const isNavigation = !dest || dest === "document" || dest === "iframe";
       if (!isNavigation) {
