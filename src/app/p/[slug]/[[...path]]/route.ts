@@ -23,16 +23,37 @@ export async function GET(
   const requested =
     path && path.length > 0 ? path.join("/") : project.entryPath;
 
-  // If protected, check cookie. If absent, redirect to gate.
+  // If protected, check cookie. If absent, redirect navigations to the gate
+  // page, but reject sub-resource requests (CSS, JS, images, fonts, fetch)
+  // with a 401. We can't 307 a stylesheet request to an HTML gate page —
+  // the browser would silently load the HTML body as CSS, leaving the
+  // (already-unlocked) parent page rendering with broken styles. Better
+  // to fail loudly so the network tab shows the real problem.
   let passwordLabelUsed: string | null = null;
   let passwordLabelIdUsed: string | null = null;
   if (project.isProtected) {
     const ok = await readGateCookie(project.id);
     if (!ok) {
+      // `Sec-Fetch-Dest: document` (and `iframe`, `empty` for some agents
+      // that don't set it accurately) indicates a top-level navigation
+      // where redirecting to the gate is the right behaviour. Everything
+      // else is a sub-resource fetched by the page itself.
+      const dest = req.headers.get("sec-fetch-dest");
+      const isNavigation = !dest || dest === "document" || dest === "iframe";
+      if (!isNavigation) {
+        return new NextResponse("Unauthorized", {
+          status: 401,
+          headers: { "Cache-Control": "no-store" },
+        });
+      }
       const url = req.nextUrl.clone();
       url.pathname = `/gate/${slug}`;
       url.searchParams.set("to", `/p/${slug}/${requested}`);
-      return NextResponse.redirect(url);
+      const res = NextResponse.redirect(url);
+      // Belt-and-braces: keep edge caches from holding onto this redirect
+      // and serving it back to requests that DO have a valid cookie.
+      res.headers.set("Cache-Control", "no-store");
+      return res;
     }
     passwordLabelIdUsed = ok.passwordLabelId;
   }
