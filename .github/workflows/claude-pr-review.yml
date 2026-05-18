@@ -1,0 +1,103 @@
+name: Claude PR Review
+
+# Runs ONCE per PR: when a non-draft PR is opened against main, or when a
+# draft is flipped to ready-for-review. Does NOT re-run on subsequent pushes
+# — iterative re-reviews find diminishing-returns nits, burn tokens, and
+# stretch ship time. To request a fresh review after pushing changes, mark
+# the PR as draft and then mark it ready for review again.
+on:
+  pull_request:
+    types: [opened, ready_for_review]
+    branches: [main]
+
+# Minimum perms the action needs to comment on the PR.
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+jobs:
+  review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Review this pull request. The repo is dump.thebnut — a multi-tenant
+            Next.js 16 app for hosting static HTML/CSS/JS prototypes, with
+            Auth.js v5 (credentials), Drizzle ORM + Postgres, Vercel Blob for
+            files, and bearer-token API at /api/v1/*. Read AGENTS.md before
+            reviewing — Next.js 16 has breaking changes from training-data
+            assumptions (async params/cookies/headers, proxy.ts not
+            middleware.ts, etc.).
+
+            Priority signals (flag any violation):
+
+            - **Ownership scoping.** Per-user dashboard queries in
+              src/lib/queries.ts must filter by ownerId for non-admin users.
+              A cross-user data leak in dashboard or API list endpoints is
+              the highest-severity bug class in this codebase.
+            - **Admin gate.** /admin/* routes and any admin API must verify
+              session.user.role === "admin" before mutating. Pages, server
+              actions, and route handlers all need their own check — the
+              proxy only handles top-level page navigation.
+            - **Bearer auth on /api/v1/*.** Every API v1 route must use the
+              bearer-auth wrapper from src/lib/api.ts (proxy.ts deliberately
+              excludes /api/v1/). A new route without the wrapper is a
+              critical bypass.
+            - **Project gate cookie integrity.** Changes to
+              src/app/p/[slug]/[[...path]]/route.ts or src/lib/gate.ts need
+              scrutiny: HMAC verification with AUTH_SECRET, project-scoped
+              cookie name, Sec-Fetch-Dest navigation check, redirect Cache-
+              Control: no-store. Don't accept changes that weaken any of
+              these.
+            - **Zip upload safety.** Path traversal rejection (../, absolute
+              paths, trailing slashes), 50 MB / 200-file caps, macOS noise
+              filtering — all live in src/lib/projects.ts. New upload paths
+              must reuse the same primitives.
+            - **Password handling.** bcrypt.hash on store; never log
+              plaintext, never return plaintext from any API response.
+              Access logs store the password *label*, never the value.
+            - **Schema changes.** src/lib/db/schema.ts edits must have a
+              matching migration file under drizzle/ (or a clear plan to
+              `db:push` if the change is local-only — call this out).
+            - **Next.js 16 conventions.** Synchronous access to params,
+              searchParams, cookies(), headers() is removed in v16 — must
+              be awaited. proxy.ts (not middleware.ts) is the gate. Flag
+              any code that looks like it was written against v14/v15.
+            - **Secrets.** Nothing sensitive in NEXT_PUBLIC_* env vars.
+              No hardcoded AUTH_SECRET, BLOB_READ_WRITE_TOKEN, POSTGRES_URL,
+              or bearer tokens. Tokens (dt_live_…) should never appear in
+              logs or error responses.
+            - **Validation.** Zod is in the project (see src/lib/auth.ts for
+              the pattern). Form actions and API routes should safeParse
+              user input. Flag unvalidated input that ends up in queries,
+              shell commands, or file paths.
+
+            Also flag general issues: bugs, race conditions, N+1 queries,
+            missing error handling at trust boundaries, dangerouslySetInnerHTML,
+            raw SQL via sql\`\` template (Drizzle), unhandled promise rejections.
+
+            Be terse and specific. Skip praise. British English.
+
+            Output:
+            - Use mcp__github_inline_comment__create_inline_comment (with
+              confirmed: true) for each line-level finding. One inline
+              comment per issue.
+            - Use `gh pr comment` ONCE for a top-level summary (issue counts
+              by severity + the 3 most important findings). Keep it under
+              300 words.
+            - Do NOT post review text as chat messages. The PR is the only
+              output surface.
+          claude_args: |
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh api:*)"
