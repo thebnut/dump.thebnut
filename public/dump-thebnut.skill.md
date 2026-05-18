@@ -163,6 +163,95 @@ curl -sS -X DELETE "https://dump.thebnut.com/api/v1/projects/$SLUG" \
 - **Rate limits**: 60 req/min per token, 10 uploads/min.
 - **Field name**: the upload field is `file` (the legacy `zip` name is also accepted).
 
+## Dynamic data via Google Sheets
+
+dump only serves static files, but a static SPA can talk to any HTTPS
+endpoint. The supported pattern for "dynamic" prototypes is a Google
+Apps Script Web App wrapping a Google Sheet — the user gets a tiny
+CRUD JSON API with zero infrastructure, owned entirely by their Google
+account.
+
+### Trigger this pattern when
+
+The user asks for something like:
+- "make a todo list / guestbook / leaderboard / feedback form / mood tracker / etc. that saves"
+- "I want this to actually store data"
+- "back this with a spreadsheet" / "use a Google Sheet"
+- anything where they want CRUD without a real backend
+
+If they want auth, multi-user permissions, or sensitive data, **stop and
+warn them** — the Apps Script Web App deployment is anonymous (anyone
+with the URL can read and mutate the sheet). For those cases, recommend
+they raise it with Brett directly; dump doesn't currently have a
+first-class auth-aware data layer.
+
+### What to generate
+
+Two files in the prototype folder, plus instructions for the user:
+
+1. **`index.html`** — the SPA. Has a `SHEET_API` constant near the top
+   that the user replaces with their deployed Apps Script URL.
+
+2. **`apps-script.gs`** — Apps Script template. The user pastes this into
+   the script editor bound to their sheet.
+
+Reference implementations live at `examples/todo-sheet/` in the dump.thebnut
+repo (https://github.com/thebnut/dump.thebnut/tree/main/examples/todo-sheet).
+Generate analogous files for whatever the user actually asked for; keep
+the contract identical so the same script template works.
+
+### The contract (don't deviate without reason)
+
+| Browser sends                                            | Script returns                                |
+| -------------------------------------------------------- | --------------------------------------------- |
+| `GET <SHEET_API>`                                        | `[{id, ...columns}]` — all rows               |
+| `POST` body `{"op":"create","row":{...}}`                | `{id, ...columns}` — the new row             |
+| `POST` body `{"op":"update","id":"...","row":{...}}`     | `{id, ...columns}` — the updated row         |
+| `POST` body `{"op":"delete","id":"..."}`                 | `{deleted: true, id}`                        |
+
+All POSTs use `Content-Type: text/plain;charset=utf-8` (NOT `application/json`)
+to keep the browser in "simple request" mode — Apps Script Web Apps don't
+handle CORS preflight reliably. The body is JSON-stringified anyway.
+
+The `id` column is auto-managed: the script adds it if missing, generates
+UUIDs on create, treats it as immutable on update. The first row of the
+sheet is the schema; the SPA can use any column names.
+
+### Setup steps to tell the user
+
+After uploading the SPA to dump:
+
+1. Make a Google Sheet with columns matching what your SPA expects in
+   row 1 (e.g. `id`, `title`, `done` for a todo list). `id` is optional —
+   the script adds it on first use.
+2. **Extensions → Apps Script** in the sheet, paste `apps-script.gs`, save.
+3. **Deploy → New deployment → Web app**: execute as Me, access Anyone,
+   click Deploy, authorize, copy the URL.
+4. Paste that URL into `index.html` as `SHEET_API`.
+5. Re-upload the prototype to dump (use the `/zip` re-upload endpoint).
+
+### One-shot script
+
+```bash
+# After generating ./index.html and ./apps-script.gs in the project folder:
+SLUG="${1:-my-prototype}"
+TITLE="${2:-$SLUG}"
+
+# Upload the SPA only — the Apps Script lives in Google, not in dump.
+curl -sS -X POST https://dump.thebnut.com/api/v1/projects \
+  -H "Authorization: Bearer $DUMP_TOKEN" \
+  -F "title=$TITLE" \
+  -F "slug=$SLUG" \
+  -F "file=@./index.html"
+```
+
+Then tell the user (literally, terse):
+
+> Published to https://dump.thebnut.com/p/<slug>/ — but it's not wired up
+> to a sheet yet. Open the URL and you'll see a "not configured" warning.
+> Run through the 5 steps in apps-script.gs (top of the file) to deploy
+> the backend, paste the URL into index.html, and re-upload.
+
 ## Important rules
 
 **DO NOT add a password to a project unless the user explicitly asks for one.** If the user does ask, generate or pick the password yourself (don't reuse account passwords) and **echo the value back to the user in plaintext** — they can't recover it from the dashboard. The password endpoint is only for the explicit "make this private" intent.
