@@ -138,6 +138,16 @@ export default function ApiDocsPage() {
               "optional",
               "label shown in access log; default 'default'",
             ],
+            [
+              "expiresIn",
+              "optional",
+              "TTL like '7d', '24h', '30m' (max 365d); friendlier than expiresAt",
+            ],
+            [
+              "expiresAt",
+              "optional",
+              "ISO timestamp for absolute expiry; takes precedence over expiresIn",
+            ],
           ]}
         />
       </Section>
@@ -188,6 +198,26 @@ export default function ApiDocsPage() {
   -H "Authorization: Bearer $DUMP_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{"label":"launch-team","password":"secret123"}'`}</Pre>
+
+        <Sub>Auto-expire (TTL)</Sub>
+        <Pre>{`# Set at upload — auto-deletes 7 days from now.
+curl -X POST https://dump.thebnut.com/api/v1/projects \\
+  -H "Authorization: Bearer $DUMP_TOKEN" \\
+  -F "title=Throwaway mockup" \\
+  -F "expiresIn=7d" \\
+  -F "file=@./mockup.html"
+
+# Extend / change an existing project's expiry.
+curl -X PATCH https://dump.thebnut.com/api/v1/projects/marketing-v3 \\
+  -H "Authorization: Bearer $DUMP_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"expiresIn":"30d"}'
+
+# Clear the expiry (make permanent).
+curl -X PATCH https://dump.thebnut.com/api/v1/projects/marketing-v3 \\
+  -H "Authorization: Bearer $DUMP_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"expiresAt":null}'`}</Pre>
 
         <Sub>Delete</Sub>
         <Pre>{`curl -X DELETE https://dump.thebnut.com/api/v1/projects/marketing-v3 \\

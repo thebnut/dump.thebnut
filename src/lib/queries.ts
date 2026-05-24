@@ -16,6 +16,7 @@ export type ProjectWithStats = {
   description: string | null;
   entryPath: string;
   isProtected: boolean;
+  expiresAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
   ownerEmail: string;
@@ -33,6 +34,7 @@ export async function projectsForOwner(
       description: projects.description,
       entryPath: projects.entryPath,
       isProtected: projects.isProtected,
+      expiresAt: projects.expiresAt,
       createdAt: projects.createdAt,
       updatedAt: projects.updatedAt,
       ownerEmail: users.email,
@@ -56,6 +58,7 @@ export async function allProjectsAdmin(): Promise<ProjectWithStats[]> {
       description: projects.description,
       entryPath: projects.entryPath,
       isProtected: projects.isProtected,
+      expiresAt: projects.expiresAt,
       createdAt: projects.createdAt,
       updatedAt: projects.updatedAt,
       ownerEmail: users.email,

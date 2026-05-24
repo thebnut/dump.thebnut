@@ -163,6 +163,51 @@ curl -sS -X DELETE "https://dump.thebnut.com/api/v1/projects/$SLUG" \
 - **Rate limits**: 60 req/min per token, 10 uploads/min.
 - **Field name**: the upload field is `file` (the legacy `zip` name is also accepted).
 
+## Auto-expire (TTL)
+
+Projects can carry an optional `expiresAt`. When it passes, the URL returns 410 Gone (immediately) and a cron job hard-deletes the files + frees the slug (next hourly run).
+
+**Default to `expiresIn=7d` for any "throwaway" / "show this to X" / one-shot mockup upload.** Examples that should auto-expire:
+
+- "share this with Martin", "send this to the team for review"
+- "throwaway prototype", "quick mockup", "just to look at"
+- any AI-generated HTML that wasn't part of an explicit "keep this" workflow
+
+**Don't add expiry when** the user says "publish", "this is the new version", references a specific project they're iterating on, or anything suggesting persistence.
+
+When you set a TTL, **always tell the user**: *"Published to … — auto-expires in 7 days. Use `dump ttl <slug> never` (or the dashboard) to keep it permanently."*
+
+### Setting at upload
+
+Add `-F "expiresIn=7d"` to the create call:
+
+```bash
+curl -sS -X POST https://dump.thebnut.com/api/v1/projects \
+  -H "Authorization: Bearer $DUMP_TOKEN" \
+  -F "title=$TITLE" \
+  -F "slug=$SLUG" \
+  -F "expiresIn=7d" \
+  -F "file=@./mockup.html"
+```
+
+Accepted: `30s`, `15m`, `6h`, `7d`, up to `365d`. Or `expiresAt=2026-06-01T12:00:00Z` for absolute.
+
+### Changing / clearing later
+
+```bash
+# Extend
+curl -X PATCH https://dump.thebnut.com/api/v1/projects/$SLUG \
+  -H "Authorization: Bearer $DUMP_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"expiresIn":"30d"}'
+
+# Make permanent
+curl -X PATCH https://dump.thebnut.com/api/v1/projects/$SLUG \
+  -H "Authorization: Bearer $DUMP_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"expiresAt":null}'
+```
+
 ## Important rules
 
 **DO NOT add a password to a project unless the user explicitly asks for one.** If the user does ask, generate or pick the password yourself (don't reuse account passwords) and **echo the value back to the user in plaintext** — they can't recover it from the dashboard. The password endpoint is only for the explicit "make this private" intent.

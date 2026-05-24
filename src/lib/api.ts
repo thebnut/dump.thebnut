@@ -99,6 +99,10 @@ export function withAuth<Ctx>(
 }
 
 // Project shape returned by the API. Stable contract — be careful changing.
+// `expiresAt` is optional on the input type so callers from before TTL
+// existed (and any select projection that forgets to add it) still compile;
+// at runtime we just emit `null` when it's absent, which matches "never
+// expires" semantics.
 export function serializeProject(p: {
   id: string;
   slug: string;
@@ -106,6 +110,7 @@ export function serializeProject(p: {
   description: string | null;
   entryPath: string;
   isProtected: boolean;
+  expiresAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }, baseUrl: string, accessCount?: number) {
@@ -116,6 +121,7 @@ export function serializeProject(p: {
     description: p.description,
     entryPath: p.entryPath,
     isProtected: p.isProtected,
+    expiresAt: p.expiresAt ? p.expiresAt.toISOString() : null,
     url: `${baseUrl}/p/${p.slug}/`,
     createdAt: p.createdAt.toISOString(),
     updatedAt: p.updatedAt.toISOString(),

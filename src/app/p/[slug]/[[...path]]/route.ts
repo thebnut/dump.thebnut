@@ -23,6 +23,30 @@ export async function GET(
   const requested =
     path && path.length > 0 ? path.join("/") : project.entryPath;
 
+  // TTL check runs BEFORE the gate cookie check — an expired project must
+  // 410 even to the owner. The cron job hard-deletes the row + blob files
+  // on its next run; until then we just refuse to serve it. Sub-resource
+  // requests (CSS/JS/etc.) get a plain-text 410; document/iframe nav gets
+  // a small HTML body so the user sees something explanatory.
+  if (project.expiresAt && project.expiresAt.getTime() <= Date.now()) {
+    const dest = req.headers.get("sec-fetch-dest");
+    const isNavigation = !dest || dest === "document" || dest === "iframe";
+    if (!isNavigation) {
+      return new NextResponse("Gone", {
+        status: 410,
+        headers: { "Cache-Control": "no-store" },
+      });
+    }
+    return new NextResponse(expiredPageHtml(project.title), {
+      status: 410,
+      headers: {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+      },
+    });
+  }
+
   // If protected, check cookie. If absent, redirect navigations to the gate
   // page, but reject sub-resource requests (CSS, JS, images, fonts, fetch)
   // with a 401. We can't 307 a stylesheet request to an HTML gate page —
@@ -167,4 +191,57 @@ export function ensureBaseHref(html: string, baseHref: string): string {
     /<head\b[^>]*>/i,
     (m) => `${m}\n<base href="${baseHref}">`,
   );
+}
+
+// The 410 Gone page shown when a protected/expired project is hit by a
+// top-level navigation. Inlined HTML (not a Next page) because this route
+// is purely a streaming file server; pulling in a layout would defeat the
+// "go straight to a status response" intent. Keep it tiny and self-contained.
+function expiredPageHtml(title: string): string {
+  const safeTitle = escapeHtml(title);
+  return `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>expired — ${safeTitle}</title>
+<style>
+  html, body { margin: 0; padding: 0; }
+  body {
+    min-height: 100dvh;
+    display: grid; place-items: center;
+    background: #0a0a0a; color: #ededed;
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  main { max-width: 480px; padding: 32px 24px; text-align: center; }
+  h1 { font-size: 18px; margin: 0 0 12px; letter-spacing: -0.01em; }
+  p { color: #9a9a9a; margin: 8px 0; }
+  .tag {
+    display: inline-block;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.12em;
+    color: #f87171; border: 1px dashed #f87171; padding: 3px 8px;
+    border-radius: 4px; margin-bottom: 16px;
+  }
+  a { color: #39ff88; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<main>
+  <div class="tag">410 gone</div>
+  <h1>this prototype has expired</h1>
+  <p>${safeTitle} was set to auto-expire and has been taken offline.</p>
+  <p>if you're the owner, head to <a href="/">your dashboard</a> to re-upload or set a new expiry.</p>
+</main>
+</body>
+</html>`;
+}
+
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }

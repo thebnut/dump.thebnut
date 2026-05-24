@@ -14,8 +14,10 @@ import {
 } from "@/lib/api";
 import {
   createProject,
+  parseExpiresIn,
   SlugTakenError,
   ZipError,
+  ExpiryInPastError,
 } from "@/lib/projects";
 import { rateLimit, RL_DEFAULT, RL_UPLOAD } from "@/lib/rate-limit";
 
@@ -43,6 +45,7 @@ export async function GET(req: NextRequest) {
       description: projects.description,
       entryPath: projects.entryPath,
       isProtected: projects.isProtected,
+      expiresAt: projects.expiresAt,
       createdAt: projects.createdAt,
       updatedAt: projects.updatedAt,
       accessCount: sql<number>`coalesce(count(${accessLogs.id}), 0)::int`,
@@ -104,6 +107,30 @@ export async function POST(req: NextRequest) {
   const passwordLabel =
     String(form.get("passwordLabel") ?? "").trim() || "default";
 
+  // TTL — accept either an absolute ISO timestamp (`expiresAt`) or a
+  // friendly duration (`expiresIn=7d`). The duration form is what the skill
+  // uses; `expiresAt` is for callers that compute the absolute date.
+  // If both are provided, `expiresAt` wins.
+  let expiresAt: Date | null | undefined = undefined;
+  const expiresAtRaw = String(form.get("expiresAt") ?? "").trim();
+  const expiresInRaw = String(form.get("expiresIn") ?? "").trim();
+  if (expiresAtRaw) {
+    const d = new Date(expiresAtRaw);
+    if (isNaN(d.getTime())) {
+      return jsonError("missing_field", "expiresAt must be a valid ISO timestamp.");
+    }
+    expiresAt = d;
+  } else if (expiresInRaw) {
+    const ms = parseExpiresIn(expiresInRaw);
+    if (ms == null) {
+      return jsonError(
+        "missing_field",
+        "expiresIn must look like '30m', '6h', '7d' (max 365d).",
+      );
+    }
+    expiresAt = new Date(Date.now() + ms);
+  }
+
   try {
     const buf = await upload.arrayBuffer();
     const project = await createProject({
@@ -116,6 +143,7 @@ export async function POST(req: NextRequest) {
       originalFilename: upload.name,
       passwords: password ? [{ label: passwordLabel, password }] : undefined,
       collisionMode: "reject",
+      expiresAt,
     });
     return jsonOk(
       { project: serializeProject(project, siteUrl(req), 0) },
@@ -124,6 +152,9 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     if (e instanceof SlugTakenError) {
       return jsonError("slug_taken", e.message);
+    }
+    if (e instanceof ExpiryInPastError) {
+      return jsonError("missing_field", e.message);
     }
     if (e instanceof ZipError) {
       const tooBig = /max total size|max file count/i.test(e.message);

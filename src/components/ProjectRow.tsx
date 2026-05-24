@@ -1,6 +1,38 @@
 import Link from "next/link";
 import type { ProjectWithStats } from "@/lib/queries";
 
+function TtlBadge({ expiresAt }: { expiresAt: Date | null }) {
+  if (!expiresAt) return null;
+  const ms = expiresAt.getTime() - Date.now();
+  if (ms <= 0) {
+    return (
+      <span
+        className="rounded bg-red-900/40 text-red-300 text-[10px] px-1.5 py-0.5 uppercase tracking-wide whitespace-nowrap"
+        title={`Expired ${expiresAt.toLocaleString()} — pending cleanup`}
+      >
+        expired
+      </span>
+    );
+  }
+  const minute = 60_000;
+  const hour = 3_600_000;
+  const day = 86_400_000;
+  const label =
+    ms < hour
+      ? `${Math.max(1, Math.round(ms / minute))}m`
+      : ms < day
+        ? `${Math.round(ms / hour)}h`
+        : `${Math.round(ms / day)}d`;
+  return (
+    <span
+      className="rounded bg-neutral-800/80 text-neutral-300 text-[10px] px-1.5 py-0.5 uppercase tracking-wide whitespace-nowrap"
+      title={`Expires ${expiresAt.toLocaleString()}`}
+    >
+      expires in {label}
+    </span>
+  );
+}
+
 export function ProjectRow({ project }: { project: ProjectWithStats }) {
   return (
     <div className="group relative flex items-center justify-between gap-4 px-4 py-3.5 hover:bg-[rgba(57,255,136,0.025)] transition-colors">
@@ -26,6 +58,7 @@ export function ProjectRow({ project }: { project: ProjectWithStats }) {
               public
             </span>
           )}
+          <TtlBadge expiresAt={project.expiresAt} />
         </div>
         {project.description ? (
           <p className="text-[13px] text-neutral-400 truncate ml-[22px] mt-1">

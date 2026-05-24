@@ -12,12 +12,14 @@ import {
   updateProjectPassword,
   deleteProject,
   updateProject,
+  parseExpiresIn,
 } from "@/lib/projects";
 import { TermRule } from "@/components/TermRule";
 
 type Props = {
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ edit?: string; ok?: string }>;
+  // `ok` values used: password-updated, ttl-set, ttl-cleared, ttl-invalid
 };
 
 export default async function ProjectManagePage({
@@ -107,6 +109,41 @@ export default async function ProjectManagePage({
     redirect(`/projects/${slug}`);
   }
 
+  async function updateExpiry(formData: FormData) {
+    "use server";
+    const session = await auth();
+    if (!session?.user) redirect("/login");
+    const proj = await projectBySlugForUser(
+      slug,
+      session.user.id,
+      session.user.role === "admin",
+    );
+    if (!proj) return;
+
+    const action = String(formData.get("action") ?? "");
+    if (action === "clear") {
+      await updateProject(proj.id, { expiresAt: null });
+      redirect(`/projects/${slug}?ok=ttl-cleared`);
+    }
+    if (action === "set") {
+      // Two inputs: a preset (`ttl`) or an absolute datetime-local (`ttlAt`).
+      // ttlAt wins when provided; otherwise ttl is a duration string parsed by parseExpiresIn.
+      const ttlAt = String(formData.get("ttlAt") ?? "").trim();
+      const ttl = String(formData.get("ttl") ?? "").trim();
+      let when: Date | null = null;
+      if (ttlAt) {
+        const d = new Date(ttlAt);
+        if (!isNaN(d.getTime())) when = d;
+      } else if (ttl) {
+        const ms = parseExpiresIn(ttl);
+        if (ms != null) when = new Date(Date.now() + ms);
+      }
+      if (!when) redirect(`/projects/${slug}?ok=ttl-invalid`);
+      await updateProject(proj.id, { expiresAt: when });
+      redirect(`/projects/${slug}?ok=ttl-set`);
+    }
+  }
+
   async function destroy() {
     "use server";
     const session = await auth();
@@ -172,6 +209,72 @@ export default async function ProjectManagePage({
               </button>
             </div>
           </form>
+        </div>
+      </section>
+
+      <section className="space-y-2">
+        <TermRule label="auto-expire (ttl)" />
+        <div className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-6 space-y-3">
+          <ExpiryStatus expiresAt={project.expiresAt} />
+          {sp.ok === "ttl-set" ? (
+            <p className="text-xs text-emerald-400">expiry updated.</p>
+          ) : null}
+          {sp.ok === "ttl-cleared" ? (
+            <p className="text-xs text-emerald-400">expiry cleared.</p>
+          ) : null}
+          {sp.ok === "ttl-invalid" ? (
+            <p className="text-xs text-red-400">
+              ! couldn&apos;t parse that — pick a preset or enter a future date.
+            </p>
+          ) : null}
+
+          <form
+            action={updateExpiry}
+            className="grid grid-cols-[auto_1fr_auto_auto] gap-2 items-center pt-3 border-t border-dashed border-neutral-800"
+          >
+            <input type="hidden" name="action" value="set" />
+            <select
+              name="ttl"
+              defaultValue=""
+              className="rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#39ff88]"
+            >
+              <option value="">preset…</option>
+              <option value="1h">1 hour</option>
+              <option value="6h">6 hours</option>
+              <option value="24h">24 hours</option>
+              <option value="7d">7 days</option>
+              <option value="30d">30 days</option>
+            </select>
+            <Input
+              type="datetime-local"
+              name="ttlAt"
+              aria-label="custom date-time"
+              title="…or pick a custom date-time (overrides preset)"
+            />
+            <button
+              type="submit"
+              className="rounded-lg border border-[#39ff88] bg-[#39ff88] text-neutral-950 px-3 py-2 text-sm font-semibold hover:bg-[#5fff9f] whitespace-nowrap"
+            >
+              [set]
+            </button>
+            {project.expiresAt ? (
+              <button
+                type="submit"
+                formAction={updateExpiry}
+                name="action"
+                value="clear"
+                className="rounded-lg border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800 whitespace-nowrap"
+              >
+                [clear]
+              </button>
+            ) : (
+              <span />
+            )}
+          </form>
+          <p className="text-xs text-neutral-500">
+            <span className="text-neutral-600">{"// "}</span>
+            expired projects 410-gone immediately; files are hard-deleted on the next hourly cron.
+          </p>
         </div>
       </section>
 
@@ -378,4 +481,48 @@ function Input(
       className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#39ff88] focus:shadow-[0_0_0_1px_#39ff88,0_0_12px_-4px_rgba(57,255,136,0.55)]"
     />
   );
+}
+
+function ExpiryStatus({ expiresAt }: { expiresAt: Date | null }) {
+  if (!expiresAt) {
+    return (
+      <p className="text-sm text-neutral-300">
+        <span className="text-neutral-600">{"// "}</span>
+        permanent — no expiry set.
+      </p>
+    );
+  }
+  const past = expiresAt.getTime() <= Date.now();
+  const rel = humaniseDelta(expiresAt.getTime() - Date.now());
+  return (
+    <div className="space-y-1">
+      <p className="text-sm">
+        {past ? (
+          <>
+            <span className="text-red-400">expired</span>{" "}
+            <span className="text-neutral-500">{rel} ago — pending cleanup</span>
+          </>
+        ) : (
+          <>
+            <span className="text-neutral-300">expires in </span>
+            <span className="text-[#39ff88]">{rel}</span>
+          </>
+        )}
+      </p>
+      <p className="text-xs text-neutral-600">{expiresAt.toLocaleString()}</p>
+    </div>
+  );
+}
+
+// Human-readable elapsed-time string for absolute values like "3h", "2d".
+// Negative input (past) is shown as positive; caller decides which side
+// of "ago / in" to put it on.
+function humaniseDelta(ms: number): string {
+  const abs = Math.abs(ms);
+  const minute = 60_000;
+  const hour = 3_600_000;
+  const day = 86_400_000;
+  if (abs < hour) return `${Math.max(1, Math.round(abs / minute))}m`;
+  if (abs < day) return `${Math.round(abs / hour)}h`;
+  return `${Math.round(abs / day)}d`;
 }
