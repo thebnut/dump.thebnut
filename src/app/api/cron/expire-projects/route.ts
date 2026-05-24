@@ -40,21 +40,25 @@ export async function GET(req: NextRequest) {
   }
 
   const expired = await findExpiredProjects(MAX_PER_RUN);
-  const results: Array<{ slug: string; ok: boolean; error?: string }> = [];
-  for (const p of expired) {
-    try {
-      await deleteProject(p.id);
-      results.push({ slug: p.slug, ok: true });
-    } catch (err) {
-      // Don't bail — keep deleting the others. The failed one stays
-      // past-expiry and gets retried on the next run.
-      results.push({
-        slug: p.slug,
-        ok: false,
-        error: err instanceof Error ? err.message : String(err),
-      });
-    }
-  }
+
+  // Run deletes in parallel — each deleteProject() is Blob list+del+DB
+  // delete (~200-500ms wall-clock), so a serial loop of 100 would easily
+  // blow the 10s Vercel route timeout. `allSettled` keeps the per-row
+  // error isolation we want: one Blob 5xx doesn't bail the rest.
+  // Concurrency is naturally bounded by the Postgres pool size.
+  const settled = await Promise.allSettled(
+    expired.map((p) => deleteProject(p.id)),
+  );
+  const results = settled.map((s, i) => {
+    const slug = expired[i].slug;
+    if (s.status === "fulfilled") return { slug, ok: true as const };
+    const err = s.reason;
+    return {
+      slug,
+      ok: false as const,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  });
 
   const ok = results.filter((r) => r.ok).length;
   const failed = results.length - ok;

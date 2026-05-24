@@ -232,7 +232,6 @@ export default async function ProjectManagePage({
             action={updateExpiry}
             className="grid grid-cols-[auto_1fr_auto_auto] gap-2 items-center pt-3 border-t border-dashed border-neutral-800"
           >
-            <input type="hidden" name="action" value="set" />
             <select
               name="ttl"
               defaultValue=""
@@ -251,8 +250,14 @@ export default async function ProjectManagePage({
               aria-label="custom date-time"
               title="…or pick a custom date-time (overrides preset)"
             />
+            {/* Each submit button carries its own `action` value.
+                IMPORTANT: do NOT also have a hidden `name="action"` field —
+                FormData.get() returns the *first* match for a given key, so
+                a hidden `action=set` would shadow the clear button. */}
             <button
               type="submit"
+              name="action"
+              value="set"
               className="rounded-lg border border-[#39ff88] bg-[#39ff88] text-neutral-950 px-3 py-2 text-sm font-semibold hover:bg-[#5fff9f] whitespace-nowrap"
             >
               [set]
@@ -260,7 +265,6 @@ export default async function ProjectManagePage({
             {project.expiresAt ? (
               <button
                 type="submit"
-                formAction={updateExpiry}
                 name="action"
                 value="clear"
                 className="rounded-lg border border-neutral-700 px-3 py-2 text-sm hover:bg-neutral-800 whitespace-nowrap"
