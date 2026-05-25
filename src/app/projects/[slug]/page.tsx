@@ -18,17 +18,8 @@ import {
   unlinkProjectSheet,
 } from "@/lib/projects";
 import { parseSheetUrl, probeSheet, SheetsError } from "@/lib/sheets";
+import { linkSheetSchema } from "@/lib/sheet-shared";
 import { TermRule } from "@/components/TermRule";
-import { z } from "zod";
-
-// Schema for the linkSheet server action's form payload. Matches the
-// project's existing Zod usage pattern (see src/lib/auth.ts). Bounds
-// are conservative: a sheet URL is well under 2KB, a tab name is well
-// under 100 chars in practice.
-const linkSheetSchema = z.object({
-  sheetUrl: z.string().trim().min(1).max(2048),
-  tabName: z.string().trim().min(1).max(100),
-});
 
 type Props = {
   params: Promise<{ slug: string }>;

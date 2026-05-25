@@ -9,6 +9,7 @@ import {
   unlinkProjectSheet,
 } from "@/lib/projects";
 import { parseSheetUrl, probeSheet, SheetsError } from "@/lib/sheets";
+import { linkSheetSchema } from "@/lib/sheet-shared";
 import { rateLimit, RL_DEFAULT } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -81,17 +82,28 @@ export async function PUT(req: NextRequest, { params }: Params) {
   if (project === "forbidden")
     return jsonError("forbidden", "You do not own this project.");
 
-  let body: { sheetUrl?: string; tabName?: string };
+  let body: unknown;
   try {
     body = await req.json();
   } catch {
     return jsonError("missing_field", "Expected JSON body.");
   }
-  const sheetUrlRaw = String(body.sheetUrl ?? "").trim();
-  const tabName = String(body.tabName ?? "Sheet1").trim() || "Sheet1";
-  if (!sheetUrlRaw) {
-    return jsonError("missing_field", "sheetUrl is required.");
+  // Reuse the same Zod schema as the dashboard server action. Caps
+  // sheetUrl at 2 KB and tabName at 100 chars — a megabyte-long
+  // sheetUrl wouldn't survive parseSheetUrl anyway, but we'd rather
+  // reject it at the boundary than at the regex.
+  const parsed = linkSheetSchema.safeParse({
+    sheetUrl: (body as { sheetUrl?: unknown })?.sheetUrl,
+    tabName:
+      (body as { tabName?: unknown })?.tabName ?? "Sheet1",
+  });
+  if (!parsed.success) {
+    return jsonError(
+      "missing_field",
+      "sheetUrl required (≤2048 chars); tabName ≤100 chars.",
+    );
   }
+  const { sheetUrl: sheetUrlRaw, tabName } = parsed.data;
   const sheetId = parseSheetUrl(sheetUrlRaw);
   if (!sheetId) {
     return jsonError(
