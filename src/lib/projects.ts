@@ -520,7 +520,7 @@ export async function removeProjectPassword(
 
 // ---------------------------------------------------------------------------
 // Linked Google Sheet — one optional row per project. Read via the
-// /p/<slug>/_sheet/* route handlers; managed via /api/v1/projects/<slug>/sheet.
+// /p/<slug>/sheet/* route handlers; managed via /api/v1/projects/<slug>/sheet.
 // ---------------------------------------------------------------------------
 
 export async function getProjectSheet(

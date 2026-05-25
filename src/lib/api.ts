@@ -5,7 +5,13 @@ import { db } from "./db";
 import { apiTokens, users, type User } from "./db/schema";
 import { hashToken, looksLikeToken } from "./tokens";
 
+// Public error envelope used across /api/v1 AND the public /p/<slug>/sheet/*
+// routes. The sheet routes hand-roll responses (don't go through jsonError)
+// because they aren't bearer-auth — so the codes listed here are an exact
+// list of every error.code value the API surface can emit. Keep it in sync
+// with the docs at src/app/api/page.tsx → "errors" section.
 export type ApiErrorCode =
+  // /api/v1 (bearer auth)
   | "unauthorized"
   | "forbidden"
   | "not_found"
@@ -15,7 +21,16 @@ export type ApiErrorCode =
   | "zip_invalid"
   | "rate_limited"
   | "method_not_allowed"
-  | "internal_error";
+  | "internal_error"
+  // /p/<slug>/sheet/* (anonymous + gate-cookie)
+  | "gone"
+  | "invalid_json"
+  | "body_too_large"
+  | "row_not_found"
+  | "sheet_unreachable"
+  | "sheets_api"
+  // /api/cron/* (CRON_SECRET)
+  | "not_configured";
 
 const STATUS: Record<ApiErrorCode, number> = {
   unauthorized: 401,
@@ -28,6 +43,13 @@ const STATUS: Record<ApiErrorCode, number> = {
   rate_limited: 429,
   method_not_allowed: 405,
   internal_error: 500,
+  gone: 410,
+  invalid_json: 400,
+  body_too_large: 413,
+  row_not_found: 404,
+  sheet_unreachable: 502,
+  sheets_api: 502,
+  not_configured: 503,
 };
 
 export function jsonError(code: ApiErrorCode, message: string) {

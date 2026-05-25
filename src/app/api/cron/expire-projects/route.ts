@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { findExpiredProjects, deleteProject } from "@/lib/projects";
+import { getClientIp } from "@/lib/util";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,6 +10,11 @@ export const dynamic = "force-dynamic";
 // 10s default route timeout. The cron runs hourly; next run picks up
 // anything we didn't reach.
 const MAX_PER_RUN = 100;
+
+// Defence-in-depth on top of CRON_SECRET. Legitimate Vercel cron fires
+// once per hour, so 6/min is generous; a leaked secret can't be weaponised
+// to churn DB+Blob deletes at machine speed.
+const RL_CRON = { capacity: 6, refillPerSec: 6 / 60 };
 
 /**
  * Scheduled job that hard-deletes expired projects (DB row + Blob files).
@@ -36,6 +43,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(
       { error: { code: "unauthorized", message: "Bad or missing cron token" } },
       { status: 401 },
+    );
+  }
+
+  const rl = rateLimit(`cron:${getClientIp(req) ?? "no-ip"}`, RL_CRON);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: { code: "rate_limited", retryAfterSec: rl.retryAfterSec } },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } },
     );
   }
 

@@ -361,6 +361,16 @@ export default async function ProjectManagePage({
       <section className="space-y-2">
         <TermRule label="linked sheet (optional)" />
         <div className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-6 space-y-4">
+          {!project.isProtected && (
+            <div className="rounded-lg border border-amber-700/60 bg-amber-950/30 px-3 py-2 text-xs text-amber-200">
+              <strong>This project has no password.</strong> Anyone with{" "}
+              <code className="text-amber-100">/p/{project.slug}/</code> can
+              read AND modify any row in the linked sheet via the public
+              proxy endpoints (capped at 30 ops/min per IP, but a bot with
+              multiple IPs can still chew through that). Add a password
+              above to require the gate cookie on sheet writes.
+            </div>
+          )}
           {linkedSheet ? (
             <div className="space-y-2">
               <p className="text-sm">

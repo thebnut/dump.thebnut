@@ -8,8 +8,9 @@ import {
   sheetRateLimitKey,
   tooManyResponse,
   sheetErrorResponse,
+  readSheetBody,
 } from "@/lib/sheet-shared";
-import { updateRow, removeRow, type SheetRow } from "@/lib/sheets";
+import { updateRow, removeRow } from "@/lib/sheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -19,7 +20,9 @@ export const dynamic = "force-dynamic";
 
 type Params = { params: Promise<{ slug: string; id: string }> };
 
-async function loadAndAuth(req: NextRequest, slug: string) {
+async function loadAndAuth(slug: string) {
+  // readGateCookie reads from cookies() — no need to thread the request
+  // through; the slug is all we need from the call site.
   const project = await projectBySlugPublic(slug);
   if (!project) return { kind: "not_found" as const };
   if (project.expiresAt && project.expiresAt.getTime() <= Date.now()) {
@@ -41,28 +44,20 @@ function statusResponse(kind: "not_found" | "gone" | "unauthorized") {
 
 export async function PATCH(req: NextRequest, { params }: Params) {
   const { slug, id } = await params;
-  const auth = await loadAndAuth(req, slug);
+  const auth = await loadAndAuth(slug);
   if (auth.kind !== "ok") return statusResponse(auth.kind);
 
   const rl = rateLimit(sheetRateLimitKey(auth.projectId, getClientIp(req)), RL_SHEET);
   if (!rl.allowed) return tooManyResponse(rl.retryAfterSec);
 
-  let body: SheetRow;
-  try {
-    const text = await req.text();
-    body = text ? (JSON.parse(text) as SheetRow) : {};
-  } catch {
-    return NextResponse.json(
-      { error: { code: "invalid_json" } },
-      { status: 400 },
-    );
-  }
+  const parsed = await readSheetBody(req);
+  if (!parsed.ok) return parsed.response;
 
   try {
     const updated = await updateRow(
       { sheetId: auth.sheet.sheetId, tabName: auth.sheet.tabName },
       id,
-      body,
+      parsed.body,
     );
     if (!updated) {
       return NextResponse.json(
@@ -80,7 +75,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
 export async function DELETE(req: NextRequest, { params }: Params) {
   const { slug, id } = await params;
-  const auth = await loadAndAuth(req, slug);
+  const auth = await loadAndAuth(slug);
   if (auth.kind !== "ok") return statusResponse(auth.kind);
 
   const rl = rateLimit(sheetRateLimitKey(auth.projectId, getClientIp(req)), RL_SHEET);

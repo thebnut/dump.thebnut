@@ -129,6 +129,15 @@ export default function ApiDocsPage() {
             ["DELETE", "/p/{slug}/sheet/rows/{id}", "delete row by id"],
           ]}
         />
+        <P>
+          <strong className="text-amber-300">Linking a sheet to a public
+          project means anyone with the URL can write to the sheet.</strong>{" "}
+          Rate limit is 30 ops/min per IP per project; bot with rotated IPs
+          can still drain it. POST/PATCH bodies capped at 64 KB. For
+          anything sensitive, password-protect the project first — the
+          gate cookie is required on sheet writes when{" "}
+          <Code>isProtected: true</Code>.
+        </P>
       </Section>
 
       <Section label="upload — multipart/form-data">
@@ -189,8 +198,17 @@ export default function ApiDocsPage() {
           <Code>not_found</Code> (404), <Code>missing_field</Code> (400),{" "}
           <Code>slug_taken</Code> (409), <Code>zip_too_large</Code> (413),{" "}
           <Code>zip_invalid</Code> (400), <Code>rate_limited</Code> (429),{" "}
-          <Code>sheet_unreachable</Code> (400/502), <Code>sheets_api</Code> (502),{" "}
-          <Code>gone</Code> (410), <Code>internal_error</Code> (500).
+          <Code>internal_error</Code> (500).
+        </P>
+        <P>
+          Sheet endpoints (<Code>/p/{`{slug}`}/sheet/*</Code> + the
+          management API) can also return: <Code>gone</Code> (410, project
+          expired), <Code>invalid_json</Code> (400),{" "}
+          <Code>body_too_large</Code> (413, sheet bodies capped at 64 KB),{" "}
+          <Code>row_not_found</Code> (404),{" "}
+          <Code>sheet_unreachable</Code> (502, sheet not shared with the
+          service account or unlinked since), <Code>sheets_api</Code> (502,
+          upstream Google failure).
         </P>
         <P>
           Rate limits: 60 req/min per token; uploads (create / replace) capped at

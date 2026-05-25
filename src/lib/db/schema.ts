@@ -8,7 +8,7 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 
 export const users = pgTable(
   "users",
@@ -53,8 +53,11 @@ export const projects = pgTable(
     uniqueIndex("projects_slug_idx").on(t.slug),
     index("projects_owner_idx").on(t.ownerId),
     // Lets the cron find expired-but-still-has-files projects without
-    // a full scan.
-    index("projects_expires_at_idx").on(t.expiresAt),
+    // a full scan. Partial index — most projects never set expires_at,
+    // so excluding the NULL rows keeps the index small.
+    index("projects_expires_at_idx")
+      .on(t.expiresAt)
+      .where(sql`${t.expiresAt} IS NOT NULL`),
   ],
 );
 
@@ -134,7 +137,7 @@ export const projectFiles = pgTable(
   ],
 );
 
-// Links a project to a Google Sheet for dynamic CRUD via /p/<slug>/_sheet/*.
+// Links a project to a Google Sheet for dynamic CRUD via /p/<slug>/sheet/*.
 // The actual sheet lives in the user's Google Drive; they share it with the
 // service account whose email is in the GOOGLE_SERVICE_ACCOUNT_EMAIL env
 // var. The route handler reads project_sheets to find which sheet to talk
