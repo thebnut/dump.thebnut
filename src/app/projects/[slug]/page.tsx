@@ -18,6 +18,7 @@ import {
   getProjectSheet,
   setProjectSheet,
   unlinkProjectSheet,
+  TooManyPasswordsError,
 } from "@/lib/projects";
 import { parseSheetUrl, probeSheet, SheetsError } from "@/lib/sheets";
 import { linkSheetSchema } from "@/lib/sheet-shared";
@@ -27,7 +28,7 @@ type Props = {
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ edit?: string; ok?: string; tabs?: string }>;
   // `ok` values used:
-  //   password-updated, ttl-set, ttl-cleared, ttl-invalid,
+  //   password-updated, password-limit, ttl-set, ttl-cleared, ttl-invalid,
   //   sheet-linked, sheet-unlinked, sheet-missing-url, sheet-bad-url,
   //   sheet-unreachable, sheet-bad-tab (with ?tabs=…), sheet-error
 };
@@ -72,7 +73,14 @@ export default async function ProjectManagePage({
     const label = String(formData.get("label") ?? "").trim() || "default";
     const pw = String(formData.get("password") ?? "");
     if (!pw) return;
-    await addProjectPassword(proj.id, label, pw);
+    try {
+      await addProjectPassword(proj.id, label, pw);
+    } catch (e) {
+      if (e instanceof TooManyPasswordsError) {
+        redirect(`/projects/${slug}?ok=password-limit`);
+      }
+      throw e;
+    }
     redirect(`/projects/${slug}`);
   }
 
@@ -493,6 +501,11 @@ export default async function ProjectManagePage({
 
           {sp.ok === "password-updated" ? (
             <p className="text-xs text-emerald-400">password updated.</p>
+          ) : null}
+          {sp.ok === "password-limit" ? (
+            <p className="text-xs text-amber-400">
+              ! max passwords per project reached. remove one before adding another.
+            </p>
           ) : null}
 
           {passwords.length > 0 ? (
