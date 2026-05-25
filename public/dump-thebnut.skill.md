@@ -5,6 +5,8 @@ description: Upload static HTML/CSS/JS prototypes to dump.thebnut for hosting an
 
 # dump.thebnut
 
+> **Updated 2026-05-26.** Prototype URLs now live on `content.thebnut.com/p/<slug>/` (used to be `dump.thebnut.com/p/<slug>/`). Old share-links 308-redirect, so nothing breaks. The API itself stays on `dump.thebnut.com/api/v1/*`. If you read `.project.url` from API responses (every bash recipe below does), no code changes are needed — output is auto-correct. Re-fetch this file from `https://dump.thebnut.com/dump-thebnut.skill.md` to get the latest examples.
+
 Tiny hosted hub for throwaway HTML/CSS/JS prototypes. Upload a folder OR a single HTML file → get back a stable URL at `https://content.thebnut.com/p/<slug>/`. Optional per-project password gate, optional TTL for auto-expiry, optional Google Sheet backend for CRUD apps. Access logs visible in the dashboard.
 
 ## Two hosts
