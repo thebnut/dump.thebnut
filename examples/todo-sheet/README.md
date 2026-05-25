@@ -127,10 +127,21 @@ first row as headers and the rest as records.
 - **Throughput**: Apps Script Web Apps cap around 30 invocations/minute
   before throttling. Fine for personal/team prototypes; not for anything
   popular.
-- **Concurrency**: last write wins. Two people editing the same row at the
-  same time → one of them is overwritten silently.
+- **Concurrency**: writes are serialised by `LockService` inside the
+  script (`createRow_` / `updateRow_` / `deleteRow_` all take a
+  script-scoped lock). Last write still wins for a same-row update
+  collision — Sheets has no native row versioning — but two concurrent
+  deletes can't shift rows out from under each other any more, and a
+  parallel update can't land on a row that's just been removed. Reads
+  (`listRows_`) are lock-free; eventual consistency is fine for them.
 - **Auth**: "Anyone" deployment is anonymous. If you need per-user auth,
   this is the wrong pattern (look at Plan B in the dump.thebnut roadmap).
+- **Formula injection — handled**: the script auto-escapes any string
+  value beginning with `=`, `+`, `-`, or `@` by prefixing it with `'`
+  (apostrophe). Without this, anyone who finds your Web App URL could
+  POST e.g. `{title: "=IMPORTXML(...)"}` and Sheets would dutifully fire
+  the formula. If you fork the script and remove `sanitiseCell_`, you
+  re-open this hole — don't.
 - **Type coercion**: the sheet stores booleans as `TRUE`/`FALSE` cells.
   The SPA handles both `true` and `"TRUE"` for the `done` field. If you
   add boolean columns of your own, follow the same pattern.
