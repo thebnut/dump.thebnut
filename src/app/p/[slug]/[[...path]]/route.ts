@@ -5,7 +5,7 @@ import {
   projectBySlugPublic,
   findProjectFile,
 } from "@/lib/queries";
-import { readGateCookie } from "@/lib/gate";
+import { readVerifiedGateCookie } from "@/lib/gate";
 import { getClientIp } from "@/lib/util";
 import { contentRedirectTarget } from "@/lib/origins";
 
@@ -73,7 +73,10 @@ export async function GET(
   let passwordLabelUsed: string | null = null;
   let passwordLabelIdUsed: string | null = null;
   if (project.isProtected) {
-    const ok = await readGateCookie(project.id);
+    // readVerifiedGateCookie returns null when the HMAC is bad OR when the
+    // cookie's password_label_id points at a now-deleted row. Both cases
+    // fall through to the same "redirect to gate" path below.
+    const ok = await readVerifiedGateCookie(project.id);
     if (!ok) {
       // `Sec-Fetch-Dest: document` (or `iframe` when embedded) indicates a
       // top-level navigation where redirecting to the gate is the right
@@ -99,6 +102,7 @@ export async function GET(
       return res;
     }
     passwordLabelIdUsed = ok.passwordLabelId;
+    passwordLabelUsed = ok.label;
   }
 
   const file = await findProjectFile(project.id, requested);
@@ -113,27 +117,23 @@ export async function GET(
   }
 
   // Log only "page" loads (HTML), not every asset, to keep the log readable.
+  // Wrap the insert: a logging failure (e.g. a race where the password got
+  // deleted between the gate check and here, tripping the FK constraint)
+  // must never block the user from seeing the page they're authorised for.
   const isHtml = file.contentType.startsWith("text/html");
   if (isHtml) {
-    if (passwordLabelIdUsed) {
-      const { db: _db } = await import("@/lib/db");
-      const { projectPasswords } = await import("@/lib/db/schema");
-      const { eq } = await import("drizzle-orm");
-      const [pw] = await _db
-        .select({ label: projectPasswords.label })
-        .from(projectPasswords)
-        .where(eq(projectPasswords.id, passwordLabelIdUsed))
-        .limit(1);
-      passwordLabelUsed = pw?.label ?? null;
+    try {
+      await db.insert(accessLogs).values({
+        projectId: project.id,
+        ip: getClientIp(req),
+        userAgent: req.headers.get("user-agent") ?? null,
+        path: requested,
+        passwordLabelUsed,
+        passwordLabelId: passwordLabelIdUsed,
+      });
+    } catch (e) {
+      console.error(`[access-log ${slug}] insert failed:`, e);
     }
-    await db.insert(accessLogs).values({
-      projectId: project.id,
-      ip: getClientIp(req),
-      userAgent: req.headers.get("user-agent") ?? null,
-      path: requested,
-      passwordLabelUsed,
-      passwordLabelId: passwordLabelIdUsed,
-    });
   }
 
   // For HTML files, two transforms on the way out:

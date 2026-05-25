@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { projectBySlugPublic } from "@/lib/queries";
 import { getProjectSheet } from "@/lib/projects";
-import { readGateCookie } from "@/lib/gate";
+import { readVerifiedGateCookie } from "@/lib/gate";
 import { getClientIp } from "@/lib/util";
 import { contentRedirectTarget } from "@/lib/origins";
 import { rateLimit, RL_SHEET } from "@/lib/rate-limit";
@@ -55,9 +55,12 @@ async function gateOk(project: {
   id: string;
   isProtected: boolean;
 }): Promise<boolean> {
-  // readGateCookie reads from cookies() — doesn't need the request object.
+  // readVerifiedGateCookie reads from cookies() — doesn't need the request
+  // object. It also checks that the cookie's password_label_id still exists,
+  // so a rotated/deleted password invalidates the session immediately
+  // (rather than leaving the user with sheet write access on a revoked pw).
   if (!project.isProtected) return true;
-  const ok = await readGateCookie(project.id);
+  const ok = await readVerifiedGateCookie(project.id);
   return !!ok;
 }
 
