@@ -1,11 +1,11 @@
 ---
 name: dump-thebnut
-description: Upload static HTML/CSS/JS prototypes to dump.thebnut for hosting and sharing. Use when the user wants to publish a mockup, share a wireframe, "dump" a folder, push a static prototype, host an AI-generated HTML file, or get a shareable URL for HTML they have locally. Accepts a folder (zips it) or a single .html file. Requires DUMP_TOKEN env var (get one at https://dump.thebnut.com/settings).
+description: Upload static HTML/CSS/JS prototypes to dump.thebnut for hosting and sharing. Use when the user wants to publish a mockup, share a wireframe, "dump" a folder, push a static prototype, host an AI-generated HTML file, or get a shareable URL for HTML they have locally. Accepts a folder (zips it) or a single .html file, with optional CRUD persistence via a linked Google Sheet and optional auto-expiry (TTL) for throwaway prototypes. Requires DUMP_TOKEN env var (get one at https://dump.thebnut.com/settings).
 ---
 
 # dump.thebnut
 
-Tiny hosted hub for throwaway HTML/CSS/JS prototypes. Upload a folder OR a single HTML file → get back a stable URL at `https://dump.thebnut.com/p/<slug>/`. Optional per-project password gating; access logs visible in the dashboard.
+Tiny hosted hub for throwaway HTML/CSS/JS prototypes. Upload a folder OR a single HTML file → get back a stable URL at `https://dump.thebnut.com/p/<slug>/`. Optional per-project password gate, optional TTL for auto-expiry, optional Google Sheet backend for CRUD apps. Access logs visible in the dashboard.
 
 ## When to use this skill
 
