@@ -67,6 +67,26 @@ Required env vars on Vercel:
 - `AUTH_SECRET` — generate with `openssl rand -base64 32`
 - `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` (optional) — bootstrap a first admin if no users exist
 
+## Dynamic prototypes (Google Sheets backend)
+
+dump only hosts static files, but a static prototype can talk to any HTTPS
+endpoint — including a Google Apps Script Web App that wraps a Google
+Sheet as a tiny CRUD API. See [`examples/todo-sheet/`](examples/todo-sheet/)
+for a working todo-list SPA + Apps Script template + 5-minute setup guide.
+
+The pattern:
+
+```
+[browser] ──fetch──▶ [Apps Script Web App] ──▶ [Google Sheet]
+   ▲                       (user's Google account)
+   │
+served by dump as
+a normal static project
+```
+
+No changes to dump are required. The user deploys their own Apps Script
+(once per sheet, ~5 min) and pastes the URL into the prototype's JS.
+
 ## Bootstrapping the first admin
 
 After the first deploy, either run locally against the production DB:
