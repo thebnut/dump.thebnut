@@ -123,6 +123,11 @@ async function sheetsFetch(
     },
   });
   if (!res.ok) {
+    // If Google rejected our token (rotated key, revoked SA, etc.), drop
+    // the cached value so the *next* request mints a fresh one — without
+    // this, a key rotation mid-deploy means ~50 minutes of stale-token
+    // 401s until the module-scope cache expires naturally.
+    if (res.status === 401) cachedToken = null;
     const text = await res.text();
     throw new SheetsError(res.status, text);
   }

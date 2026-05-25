@@ -8,8 +8,9 @@ import {
   sheetRateLimitKey,
   tooManyResponse,
   sheetErrorResponse,
+  readSheetBody,
 } from "@/lib/sheet-shared";
-import { listRows, createRow, type SheetRow } from "@/lib/sheets";
+import { listRows, createRow } from "@/lib/sheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,10 +36,11 @@ async function loadProjectAndSheet(slug: string) {
   return { project, sheet };
 }
 
-async function gateOk(
-  req: NextRequest,
-  project: { id: string; isProtected: boolean },
-): Promise<boolean> {
+async function gateOk(project: {
+  id: string;
+  isProtected: boolean;
+}): Promise<boolean> {
+  // readGateCookie reads from cookies() — doesn't need the request object.
   if (!project.isProtected) return true;
   const ok = await readGateCookie(project.id);
   return !!ok;
@@ -63,7 +65,7 @@ export async function GET(req: NextRequest, { params }: Params) {
   if (!project) return notFound();
   if (expired) return gone();
   if (!sheet) return notFound();
-  if (!(await gateOk(req, project))) return unauthorized();
+  if (!(await gateOk(project))) return unauthorized();
 
   const rl = rateLimit(sheetRateLimitKey(project.id, getClientIp(req)), RL_SHEET);
   if (!rl.allowed) return tooManyResponse(rl.retryAfterSec);
@@ -87,28 +89,22 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (!project) return notFound();
   if (expired) return gone();
   if (!sheet) return notFound();
-  if (!(await gateOk(req, project))) return unauthorized();
+  if (!(await gateOk(project))) return unauthorized();
 
   const rl = rateLimit(sheetRateLimitKey(project.id, getClientIp(req)), RL_SHEET);
   if (!rl.allowed) return tooManyResponse(rl.retryAfterSec);
 
-  let body: SheetRow;
-  try {
-    // Accept both application/json (the new contract) and text/plain
-    // (legacy, for any SPA that still POSTs via the Apps Script style).
-    const text = await req.text();
-    body = text ? (JSON.parse(text) as SheetRow) : {};
-  } catch {
-    return NextResponse.json(
-      { error: { code: "invalid_json" } },
-      { status: 400 },
-    );
-  }
+  // readSheetBody caps body at 64 KB so a hostile anonymous caller (the
+  // endpoint is public on unprotected projects) can't stream large
+  // payloads through us. Also asserts body is a JSON object, not an
+  // array or primitive.
+  const parsed = await readSheetBody(req);
+  if (!parsed.ok) return parsed.response;
 
   try {
     const created = await createRow(
       { sheetId: sheet.sheetId, tabName: sheet.tabName },
-      body,
+      parsed.body,
     );
     return NextResponse.json(created, {
       status: 201,

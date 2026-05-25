@@ -19,6 +19,54 @@ export const linkSheetSchema = z.object({
 });
 
 /**
+ * Cap the size of a POST/PATCH body for `/p/<slug>/sheet/rows*`. A real
+ * row typically serialises to a few hundred bytes; this cap exists to
+ * stop a hostile anonymous caller (the endpoint is public on unprotected
+ * projects) from streaming megabytes through us into the linked sheet.
+ *
+ * Returns the parsed JSON (or null for empty body), or a 413 / 400
+ * response if the body's too big / not valid JSON.
+ */
+const MAX_SHEET_BODY_BYTES = 64 * 1024; // 64 KB
+
+export async function readSheetBody(
+  req: { text(): Promise<string> },
+): Promise<{ ok: true; body: Record<string, unknown> } | { ok: false; response: NextResponse }> {
+  const text = await req.text();
+  if (text.length > MAX_SHEET_BODY_BYTES) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: { code: "body_too_large", maxBytes: MAX_SHEET_BODY_BYTES } },
+        { status: 413 },
+      ),
+    };
+  }
+  if (!text) return { ok: true, body: {} };
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return {
+        ok: false,
+        response: NextResponse.json(
+          { error: { code: "invalid_json", message: "Body must be a JSON object." } },
+          { status: 400 },
+        ),
+      };
+    }
+    return { ok: true, body: parsed as Record<string, unknown> };
+  } catch {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { error: { code: "invalid_json" } },
+        { status: 400 },
+      ),
+    };
+  }
+}
+
+/**
  * One rate-limit key per project+IP, regardless of HTTP verb.
  * All four sheet endpoints (GET/POST rows, PATCH/DELETE rows/:id) compete
  * for the same RL_SHEET token bucket — they share the underlying Sheets
