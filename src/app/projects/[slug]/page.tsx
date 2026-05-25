@@ -19,6 +19,16 @@ import {
 } from "@/lib/projects";
 import { parseSheetUrl, probeSheet, SheetsError } from "@/lib/sheets";
 import { TermRule } from "@/components/TermRule";
+import { z } from "zod";
+
+// Schema for the linkSheet server action's form payload. Matches the
+// project's existing Zod usage pattern (see src/lib/auth.ts). Bounds
+// are conservative: a sheet URL is well under 2KB, a tab name is well
+// under 100 chars in practice.
+const linkSheetSchema = z.object({
+  sheetUrl: z.string().trim().min(1).max(2048),
+  tabName: z.string().trim().min(1).max(100),
+});
 
 type Props = {
   params: Promise<{ slug: string }>;
@@ -164,13 +174,26 @@ export default async function ProjectManagePage({
     );
     if (!proj) return;
 
-    const sheetUrlRaw = String(formData.get("sheetUrl") ?? "").trim();
-    const tabName = String(formData.get("tabName") ?? "Sheet1").trim() || "Sheet1";
-    if (!sheetUrlRaw) redirect(`/projects/${slug}?ok=sheet-missing-url`);
-
+    const parsed = linkSheetSchema.safeParse({
+      sheetUrl: formData.get("sheetUrl"),
+      tabName: formData.get("tabName") || "Sheet1",
+    });
+    if (!parsed.success) {
+      // Distinguish blank URL (most likely user mistake) from other
+      // schema failures (huge input, wrong type — could be a bot).
+      const missingUrl = !String(formData.get("sheetUrl") ?? "").trim();
+      redirect(
+        `/projects/${slug}?ok=${missingUrl ? "sheet-missing-url" : "sheet-bad-url"}`,
+      );
+    }
+    const { sheetUrl: sheetUrlRaw, tabName } = parsed.data;
     const sheetId = parseSheetUrl(sheetUrlRaw);
     if (!sheetId) redirect(`/projects/${slug}?ok=sheet-bad-url`);
 
+    // Only catch SheetsError specifically — anything else (including
+    // the special internal error redirect() throws) re-propagates so
+    // Next.js handles it as intended. Matching on `e.message` was
+    // fragile across Next versions; this scopes the catch tightly.
     try {
       const probe = await probeSheet(sheetId);
       if (!probe.tabs.includes(tabName)) {
@@ -183,10 +206,9 @@ export default async function ProjectManagePage({
       await setProjectSheet(proj.id, sheetId, tabName);
       redirect(`/projects/${slug}?ok=sheet-linked`);
     } catch (e) {
-      // Surface "not shared with service account" specifically; redirect
-      // exceptions thrown by Next aren't real errors.
-      if (e instanceof Error && e.message === "NEXT_REDIRECT") throw e;
-      if (e instanceof SheetsError && (e.status === 403 || e.status === 404)) {
+      if (!(e instanceof SheetsError)) throw e;
+      console.error(`[link-sheet ${slug}] probe ${e.status}: ${e.detail}`);
+      if (e.status === 403 || e.status === 404) {
         redirect(`/projects/${slug}?ok=sheet-unreachable`);
       }
       redirect(`/projects/${slug}?ok=sheet-error`);
@@ -444,7 +466,7 @@ export default async function ProjectManagePage({
             </p>
           ) : null}
           {sp.ok === "sheet-error" ? (
-            <p className="text-xs text-red-400">! something went wrong. Check the Apps Script execution log or try again.</p>
+            <p className="text-xs text-red-400">! something went wrong upstream. Try again, or check the Vercel function logs if it persists.</p>
           ) : null}
         </div>
       </section>

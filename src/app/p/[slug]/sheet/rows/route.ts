@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { projectBySlugPublic } from "@/lib/queries";
 import { getProjectSheet } from "@/lib/projects";
 import { readGateCookie } from "@/lib/gate";
+import { getClientIp } from "@/lib/util";
+import { rateLimit, RL_SHEET } from "@/lib/rate-limit";
 import {
   listRows,
   createRow,
@@ -12,12 +14,14 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-// GET  /p/<slug>/_sheet/rows — list
-// POST /p/<slug>/_sheet/rows — create
+// GET  /p/<slug>/sheet/rows — list
+// POST /p/<slug>/sheet/rows — create
 //
 // Same auth model as the file route: public if the project is, gated
 // by the gate cookie if the project is protected. TTL applies (a 410'd
 // project's sheet endpoint also 410s — checking expiry up front).
+// Rate-limited per-IP-per-project (RL_SHEET = 30/min) so a single bot
+// can't drain Sheets API quota on a public project.
 
 type Params = { params: Promise<{ slug: string }> };
 
@@ -52,15 +56,41 @@ function unauthorized(): NextResponse {
 function gone(): NextResponse {
   return NextResponse.json({ error: { code: "gone" } }, { status: 410 });
 }
-function sheetError(err: unknown): NextResponse {
+function tooMany(retryAfterSec: number): NextResponse {
+  return NextResponse.json(
+    { error: { code: "rate_limited", retryAfterSec } },
+    { status: 429, headers: { "Retry-After": String(retryAfterSec) } },
+  );
+}
+
+/**
+ * Sanitise upstream errors before returning to the client. Raw Google
+ * Sheets API response bodies + OAuth token-endpoint errors can leak the
+ * service account email, GCP project name, JWT failure reasons, etc. —
+ * none of which should be visible to anonymous prototype viewers.
+ * Logs the detail server-side (visible in Vercel function logs) and
+ * returns a generic code to the caller.
+ */
+function sheetError(slug: string, err: unknown): NextResponse {
   if (err instanceof SheetsError) {
+    console.error(`[sheet ${slug}] sheets api error ${err.status}: ${err.detail}`);
+    // Upstream auth/visibility problems (403/404) usually mean someone
+    // unshared the sheet or the link is stale. The owner needs to know;
+    // anonymous viewers don't get details.
+    if (err.status === 403 || err.status === 404) {
+      return NextResponse.json(
+        { error: { code: "sheet_unreachable" } },
+        { status: 502 },
+      );
+    }
     return NextResponse.json(
-      { error: { code: "sheets_api", status: err.status, detail: err.detail } },
-      { status: err.status === 403 || err.status === 404 ? 502 : 500 },
+      { error: { code: "sheets_api" } },
+      { status: 502 },
     );
   }
+  console.error(`[sheet ${slug}] unexpected:`, err);
   return NextResponse.json(
-    { error: { code: "internal_error", message: String(err) } },
+    { error: { code: "internal_error" } },
     { status: 500 },
   );
 }
@@ -73,6 +103,9 @@ export async function GET(req: NextRequest, { params }: Params) {
   if (!sheet) return notFound();
   if (!(await gateOk(req, project))) return unauthorized();
 
+  const rl = rateLimit(`sheet:r:${project.id}:${getClientIp(req)}`, RL_SHEET);
+  if (!rl.allowed) return tooMany(rl.retryAfterSec);
+
   try {
     const rows = await listRows({
       sheetId: sheet.sheetId,
@@ -82,7 +115,7 @@ export async function GET(req: NextRequest, { params }: Params) {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (err) {
-    return sheetError(err);
+    return sheetError(slug, err);
   }
 }
 
@@ -94,11 +127,13 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (!sheet) return notFound();
   if (!(await gateOk(req, project))) return unauthorized();
 
+  const rl = rateLimit(`sheet:w:${project.id}:${getClientIp(req)}`, RL_SHEET);
+  if (!rl.allowed) return tooMany(rl.retryAfterSec);
+
   let body: SheetRow;
   try {
-    // Accept Content-Type: text/plain (carries JSON in the body) to match
-    // the Apps Script contract — keeps the SPA portable between backends
-    // without triggering CORS preflight even when same-origin.
+    // Accept both application/json (the new contract) and text/plain
+    // (legacy, for any SPA that still POSTs via the Apps Script style).
     const text = await req.text();
     body = text ? (JSON.parse(text) as SheetRow) : {};
   } catch {
@@ -118,6 +153,6 @@ export async function POST(req: NextRequest, { params }: Params) {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (err) {
-    return sheetError(err);
+    return sheetError(slug, err);
   }
 }

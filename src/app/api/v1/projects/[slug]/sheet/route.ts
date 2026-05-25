@@ -108,6 +108,7 @@ export async function PUT(req: NextRequest, { params }: Params) {
   } catch (e) {
     if (e instanceof SheetsError) {
       const sa = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? "<the service account>";
+      console.error(`[sheet-link ${slug}] probe ${e.status}: ${e.detail}`);
       if (e.status === 403 || e.status === 404) {
         return NextResponse.json(
           {
@@ -119,7 +120,9 @@ export async function PUT(req: NextRequest, { params }: Params) {
           { status: 400 },
         );
       }
-      return jsonError("internal_error", `Sheets API: ${e.detail}`);
+      // Don't echo `e.detail` — it can carry GCP internals. Log it
+      // server-side and return a generic message.
+      return jsonError("internal_error", "Sheets API call failed; see server logs.");
     }
     throw e;
   }
