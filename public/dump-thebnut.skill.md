@@ -33,11 +33,72 @@ If empty, **stop and ask the user** to:
 
 Don't proceed without the token — every endpoint will 401.
 
-## Pick a path: single file or folder?
+## Compatibility & features — what you can build
 
-**Single .html / .htm file** — common for AI-generated mockups, self-contained pages with inline CSS/JS. Skip the zip step entirely.
+Three patterns, all hosted as static prototypes at `https://dump.thebnut.com/p/<slug>/`. Decide which one fits BEFORE writing any code — the choice determines build constraints + which upload flow to use.
 
-**Folder of static assets** — multi-file prototypes with separate CSS/JS/images. Zip first.
+### 1 · Single-file HTML
+
+A self-contained `.html` file. Inline `<style>` + `<script>`. Images either inlined as base64 or hot-linked from a CDN. JS libraries via CDN `<script>` tag (Alpine, htmx, Vue UMD, React UMD, p5.js, three.js, Tailwind CDN, etc.) are fine.
+
+**Pick when:** one-shot mockup, AI-generated demo, single-page tool, visualisation. The default for "Claude, dump me an HTML".
+
+**Don't pick when:** the build output already has separate CSS/JS files, or assets exceed ~100 KB each (base64 bloats the HTML; just use bundle).
+
+**Hard limits:** 50 MB total. No server-side runtime.
+
+→ See "Upload a single HTML file" below for the curl recipe.
+
+### 2 · HTML bundle (multi-file)
+
+A folder of HTML/CSS/JS/image/font files, zipped on upload. Up to 200 files, 50 MB total. Multi-page apps, framework builds, reference mockups with shared `_shared.css` patterns, anything where keeping files separate is cleaner.
+
+**Pick when:** more than one HTML file, separate stylesheet, separate image assets, framework build output.
+
+**Don't pick when:** the prototype needs to persist user input across reloads — use option 3.
+
+**Framework build gotcha:** absolute paths like `/assets/foo.js` are server-side rewritten to `/p/<slug>/assets/foo.js`. Static `<script src>` works. But dynamic `import("/assets/...")` in JS bundles 404s — those need a build-time base path: `vite build --base=./` (Vite), `"homepage": "."` in `package.json` (CRA), `basePath` in `next.config.js` for Next static export.
+
+**Hard limits:** static-only. No SSR. No serverless functions. No Node modules at runtime — only what your bundler statically resolved into the JS.
+
+→ See "Upload a folder (zip flow)" below.
+
+### 3 · CRUD app with Google Sheet backend
+
+Same shape as 1 or 2, PLUS your client-side JS does same-origin fetches to `sheet/rows` for dynamic data persistence. The sheet acts as the database; dump's server proxies reads/writes via a service account that the project owner shares the sheet with on the manage page.
+
+**Pick when:** the prototype needs to persist user input — todo lists, guestbooks, feedback forms, leaderboards, simple admin panels, mood trackers, polls. Anything you'd otherwise reach for Supabase/Firebase for and immediately regret the per-tenant complexity.
+
+**Don't pick when:**
+- You need per-user authentication. The sheet endpoint is anonymous (or gated by the project password if set). There's no "logged-in user". Tell the user this if they ask.
+- The data is sensitive (PII, regulated, financial). Rows live in a Google Sheet shared with a service account. Not the right place.
+
+**The CRUD contract** — what your client-side JS calls:
+
+| Browser                           | Server returns                            |
+| --------------------------------- | ----------------------------------------- |
+| `GET sheet/rows`                  | `[{ id, ...columns }]` — all rows         |
+| `POST sheet/rows`, JSON body      | `{ id, ...columns }` — id auto-set        |
+| `PATCH sheet/rows/<id>`, JSON     | `{ id, ...columns }` — only sent fields updated |
+| `DELETE sheet/rows/<id>`          | `{ deleted: true, id }`                   |
+
+URLs are **relative** (just `sheet/rows`, not `/sheet/rows`). dump injects `<base href="/p/<slug>/">` server-side so they resolve to the right project. Means your SPA doesn't need to know its own slug and works wherever it gets uploaded.
+
+**Conventions you must follow:**
+- First row of the sheet is the column schema. First column is `id` (auto-managed; never write to it from your JS).
+- Booleans come back from Sheets as `true` / `false` OR strings `"TRUE"` / `"FALSE"` depending on cell format. Handle both: `t.done === true || t.done === "TRUE"`.
+- Don't try to manage `id` from the client — the server always generates a UUID; any client-supplied `id` is dropped (defence against formula injection).
+- Body cap: **64 KB** per write. Rate limit: **30 ops/min per IP per project**. Tell the user if they're building something that'll legitimately exceed either.
+- All POSTs use `Content-Type: application/json`. The proxy is same-origin so CORS isn't a concern.
+
+**After uploading**, tell the user (literally):
+> Published to https://dump.thebnut.com/p/<slug>/ — but it's not wired to a sheet yet. Open the manage page (https://dump.thebnut.com/projects/<slug>), share a Google Sheet with the displayed service-account address (Editor access), paste the sheet URL, click [link]. Then the prototype works.
+
+→ See "Dynamic data via Google Sheets" for the full setup steps + the alternative Apps Script flavour.
+
+### Optional add-on: TTL (any pattern)
+
+Any of the three patterns can carry an `expiresIn` / `expiresAt` so the prototype auto-deletes after a duration. Default to `expiresIn=7d` for throwaway / "show this to X" / one-shot uploads. → See "Auto-expire (TTL)".
 
 ## Upload a single HTML file
 
