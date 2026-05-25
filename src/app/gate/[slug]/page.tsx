@@ -7,6 +7,8 @@ import {
 } from "@/lib/queries";
 import { setGateCookie } from "@/lib/gate";
 import { contentRedirectTarget } from "@/lib/origins";
+import { ipFromHeaders } from "@/lib/util";
+import { rateLimit, RL_AUTH } from "@/lib/rate-limit";
 import { Logo } from "@/components/Logo";
 
 type Props = {
@@ -44,6 +46,22 @@ export default async function GatePage({ params, searchParams }: Props) {
     "use server";
     const password = String(formData.get("password") ?? "");
     const to = String(formData.get("to") ?? "");
+
+    // Rate-limit BEFORE the bcrypt comparison loop. A project with N
+    // passwords does N sequential ~100ms bcrypt.compares per unlock —
+    // without this limit, anyone with the URL could pin a CPU at
+    // negligible cost AND brute-force the password set in parallel.
+    // Bucket includes the slug so an attacker on one project can't
+    // affect a legitimate viewer of another from the same IP.
+    const actionHeaders = await headers();
+    const ip = ipFromHeaders(actionHeaders) ?? "unknown";
+    const rl = rateLimit(`gate:${ip}:${slug}`, RL_AUTH);
+    if (!rl.allowed) {
+      const u = new URLSearchParams();
+      if (to) u.set("to", to);
+      u.set("error", "rate_limited");
+      redirect(`/gate/${slug}?${u.toString()}`);
+    }
 
     const project = await projectBySlugPublic(slug);
     if (!project) redirect("/");
@@ -107,7 +125,11 @@ export default async function GatePage({ params, searchParams }: Props) {
           />
         </div>
 
-        {sp.error ? (
+        {sp.error === "rate_limited" ? (
+          <p className="text-xs text-amber-400">
+            ! too many attempts. wait a minute and try again.
+          </p>
+        ) : sp.error ? (
           <p className="text-xs text-red-400">! incorrect password.</p>
         ) : null}
 

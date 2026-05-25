@@ -54,3 +54,9 @@ export const RL_UPLOAD: Config = { capacity: 10, refillPerSec: 10 / 60 }; // 10/
 // the bucket tight so a single bot can't drain Sheets API quota or pollute
 // the linked sheet.
 export const RL_SHEET: Config = { capacity: 30, refillPerSec: 30 / 60 }; // 30/min
+// Auth surfaces: /login (credentials sign-in) and /gate/<slug> (project
+// password). Each bcrypt.compare is ~100ms, so 10/min caps server CPU at
+// ~1s/min per attacker bucket and frustrates credential stuffing / project
+// password brute force without locking out a legitimate user who fat-
+// fingers their password a few times.
+export const RL_AUTH: Config = { capacity: 10, refillPerSec: 10 / 60 }; // 10/min

@@ -5,14 +5,41 @@ import { and, eq } from "drizzle-orm";
 import { db } from "./db";
 import { projectPasswords } from "./db/schema";
 
-const SECRET = process.env.AUTH_SECRET || "dev-fallback-secret";
+// HMAC key for the gate cookie. Must come from env in any non-dev
+// environment — falling back to a hardcoded string in production (or
+// preview) would let anyone with the public repo mint valid gate cookies
+// for any project.
+//
+// Resolved lazily on first use rather than at module load: `next build`
+// loads server modules during "collect page data" without runtime env
+// vars present, so a module-load throw would break the build itself.
+// First call from a request runs in `phase-production-server`, where
+// AUTH_SECRET is set — anywhere it isn't, we fail loudly at that point.
+let cachedSecret: string | undefined;
+function getSecret(): string {
+  if (cachedSecret !== undefined) return cachedSecret;
+  const env = process.env.AUTH_SECRET;
+  if (env) {
+    cachedSecret = env;
+    return env;
+  }
+  if (process.env.NODE_ENV !== "development") {
+    throw new Error(
+      "AUTH_SECRET must be set outside of local development. Gate cookies " +
+        "are HMAC-signed with this value — a hardcoded fallback would let " +
+        "anyone with the public repo forge valid sessions.",
+    );
+  }
+  cachedSecret = "dev-fallback-secret";
+  return cachedSecret;
+}
 
 export function gateCookieName(projectId: string): string {
   return `dt_g_${projectId}`;
 }
 
 function sign(value: string): string {
-  return crypto.createHmac("sha256", SECRET).update(value).digest("hex");
+  return crypto.createHmac("sha256", getSecret()).update(value).digest("hex");
 }
 
 export function makeGateToken(projectId: string, passwordLabelId: string): string {
@@ -30,8 +57,14 @@ export function verifyGateToken(
   const [pid, labelId, sig] = parts;
   if (pid !== projectId) return null;
   const expected = sign(`${pid}.${labelId}`);
-  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected)))
-    return null;
+  const sigBuf = Buffer.from(sig);
+  const expBuf = Buffer.from(expected);
+  // timingSafeEqual throws on length mismatch — a crafted cookie of any
+  // shape would otherwise propagate to the route handler as a 500. Treat
+  // length-mismatched signatures as plain "invalid" so the gate-redirect
+  // path runs instead.
+  if (sigBuf.length !== expBuf.length) return null;
+  if (!crypto.timingSafeEqual(sigBuf, expBuf)) return null;
   return { passwordLabelId: labelId };
 }
 
