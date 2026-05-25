@@ -10,8 +10,9 @@ export const authConfig: NextAuthConfig = {
       const path = nextUrl.pathname;
 
       // Public: login page, project gate + serve, NextAuth endpoints,
-      // bearer-auth API (route handlers do their own auth), docs page,
-      // _next assets, favicon.
+      // bearer-auth API (route handlers do their own auth), cron routes
+      // (auth via CRON_SECRET in their own handler), docs page, _next
+      // assets, favicon.
       const isPublic =
         path === "/login" ||
         path === "/api" ||
@@ -19,6 +20,7 @@ export const authConfig: NextAuthConfig = {
         path.startsWith("/gate/") ||
         path.startsWith("/api/auth") ||
         path.startsWith("/api/v1") ||
+        path.startsWith("/api/cron") ||
         path.startsWith("/_next") ||
         path === "/favicon.ico";
 
