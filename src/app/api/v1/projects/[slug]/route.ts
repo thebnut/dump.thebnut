@@ -9,7 +9,7 @@ import {
   serializeProject,
   siteUrl,
 } from "@/lib/api";
-import { deleteProject, updateProject } from "@/lib/projects";
+import { deleteProject, updateProject, parseExpiresIn } from "@/lib/projects";
 import { rateLimit, RL_DEFAULT } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -26,6 +26,7 @@ async function loadOwned(slug: string, userId: string) {
       description: projects.description,
       entryPath: projects.entryPath,
       isProtected: projects.isProtected,
+      expiresAt: projects.expiresAt,
       createdAt: projects.createdAt,
       updatedAt: projects.updatedAt,
       ownerId: projects.ownerId,
@@ -80,6 +81,35 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return jsonError("missing_field", "Expected JSON body.");
   }
 
+  // TTL update. Three forms accepted:
+  //   - expiresAt: ISO string → set/extend; `null` → clear (make permanent).
+  //   - expiresIn: duration string (e.g. "7d") → set N from now.
+  //   - neither: don't touch the existing value.
+  // Past timestamps in `expiresAt` are allowed (semantically "expire now").
+  let expiresAtPatch: Date | null | undefined = undefined;
+  if (Object.prototype.hasOwnProperty.call(body, "expiresAt")) {
+    if (body.expiresAt === null) {
+      expiresAtPatch = null;
+    } else if (typeof body.expiresAt === "string") {
+      const d = new Date(body.expiresAt);
+      if (isNaN(d.getTime())) {
+        return jsonError("missing_field", "expiresAt must be ISO string or null.");
+      }
+      expiresAtPatch = d;
+    } else {
+      return jsonError("missing_field", "expiresAt must be ISO string or null.");
+    }
+  } else if (typeof body.expiresIn === "string" && body.expiresIn) {
+    const ms = parseExpiresIn(body.expiresIn);
+    if (ms == null) {
+      return jsonError(
+        "missing_field",
+        "expiresIn must look like '30m', '6h', '7d' (max 365d).",
+      );
+    }
+    expiresAtPatch = new Date(Date.now() + ms);
+  }
+
   await updateProject(project.id, {
     title: typeof body.title === "string" ? body.title : undefined,
     description:
@@ -90,6 +120,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
           : undefined,
     entryPath:
       typeof body.entryPath === "string" ? body.entryPath : undefined,
+    expiresAt: expiresAtPatch,
   });
 
   // Re-load to return canonical state.

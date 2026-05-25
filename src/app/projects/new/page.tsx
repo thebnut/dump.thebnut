@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
-import { createProject } from "@/lib/projects";
+import { createProject, parseExpiresIn } from "@/lib/projects";
 import { TermRule } from "@/components/TermRule";
 import { UploadDropzone } from "@/components/UploadDropzone";
 
@@ -30,8 +30,17 @@ export default async function NewProjectPage({
     const password = String(formData.get("password") ?? "").trim();
     const passwordLabel =
       String(formData.get("passwordLabel") ?? "").trim() || "default";
+    const ttl = String(formData.get("ttl") ?? "never").trim();
 
     if (!title) redirect("/projects/new?error=missing-title");
+
+    // TTL select: "never" or a duration like "1h"/"24h"/"7d"/"30d".
+    let expiresAt: Date | null | undefined;
+    if (ttl && ttl !== "never") {
+      const ms = parseExpiresIn(ttl);
+      if (ms == null) redirect("/projects/new?error=invalid-ttl");
+      expiresAt = new Date(Date.now() + ms);
+    }
 
     const f = file as File;
     const buf = await f.arrayBuffer();
@@ -46,6 +55,7 @@ export default async function NewProjectPage({
         zipBuffer: buf,
         originalFilename: f.name,
         passwords: password ? [{ label: passwordLabel, password }] : undefined,
+        expiresAt,
       });
       redirect(`/projects/${project.slug}`);
     } catch (e) {
@@ -111,6 +121,24 @@ export default async function NewProjectPage({
           hint="A .zip of static files OR a single .html file. 50 MB cap."
         >
           <UploadDropzone name="zip" required />
+        </Field>
+
+        <Field
+          label="auto-expire (optional)"
+          hint="When set, the project 410s after this long and is hard-deleted by the next cron run. You can change or clear this later."
+        >
+          <select
+            name="ttl"
+            defaultValue="never"
+            className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#39ff88] focus:shadow-[0_0_0_1px_#39ff88,0_0_12px_-4px_rgba(57,255,136,0.55)]"
+          >
+            <option value="never">never</option>
+            <option value="1h">1 hour</option>
+            <option value="6h">6 hours</option>
+            <option value="24h">24 hours</option>
+            <option value="7d">7 days</option>
+            <option value="30d">30 days</option>
+          </select>
         </Field>
 
         <div className="pt-2">

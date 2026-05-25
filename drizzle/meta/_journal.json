@@ -15,6 +15,13 @@
       "when": 1777447270740,
       "tag": "0001_flawless_firebird",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1779623938523,
+      "tag": "0002_magenta_zaladane",
+      "breakpoints": true
     }
   ]
 }

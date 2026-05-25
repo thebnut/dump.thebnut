@@ -37,6 +37,11 @@ export const projects = pgTable(
     entryPath: text("entry_path").notNull().default("index.html"),
     isProtected: boolean("is_protected").notNull().default(false),
     blobPrefix: text("blob_prefix").notNull(),
+    // Optional TTL. Null = never expires. When set and <= now(), the route
+    // handler returns 410 Gone (lazy soft-delete) and the cron job
+    // (/api/cron/expire-projects) hard-deletes the row + Blob files on its
+    // next run, freeing the slug.
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -47,6 +52,9 @@ export const projects = pgTable(
   (t) => [
     uniqueIndex("projects_slug_idx").on(t.slug),
     index("projects_owner_idx").on(t.ownerId),
+    // Lets the cron find expired-but-still-has-files projects without
+    // a full scan.
+    index("projects_expires_at_idx").on(t.expiresAt),
   ],
 );
 

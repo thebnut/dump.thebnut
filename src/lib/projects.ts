@@ -2,7 +2,7 @@ import "server-only";
 import { put, del, list } from "@vercel/blob";
 import JSZip from "jszip";
 import bcrypt from "bcryptjs";
-import { eq, and } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { db } from "./db";
 import {
   projects,
@@ -41,6 +41,10 @@ export type CreateProjectInput = {
   /** auto-suffix: append `-2`, `-3`… on collision (dashboard default).
    *  reject: throw SlugTakenError on collision (API default). */
   collisionMode?: "auto-suffix" | "reject";
+  /** Optional TTL — when reached, the project 410s on read and the cron
+   *  job hard-deletes the files + row. Must be in the future at create
+   *  time (validated in createProject). Null/undefined = never expires. */
+  expiresAt?: Date | null;
 };
 
 export type UpdateProjectInput = {
@@ -48,7 +52,41 @@ export type UpdateProjectInput = {
   description?: string | null;
   entryPath?: string;
   isProtected?: boolean;
+  /** Pass `null` to clear; a Date to set/extend. Past dates are allowed on
+   *  update (they immediately 410 the project — useful for "expire now"). */
+  expiresAt?: Date | null;
 };
+
+export class ExpiryInPastError extends Error {
+  constructor() {
+    super("expiresAt must be in the future");
+    this.name = "ExpiryInPastError";
+  }
+}
+
+/**
+ * Parse a duration string like "30m" / "6h" / "7d" into milliseconds. Used
+ * by the API layer so callers can say `expiresIn=7d` instead of having to
+ * compute an absolute timestamp. Returns null for invalid input.
+ *
+ * Supported units: s, m, h, d.
+ * Max accepted: 365 days. Beyond that, callers should pass `expiresAt`.
+ */
+export function parseExpiresIn(value: string): number | null {
+  const m = /^(\d+)\s*(s|m|h|d)$/i.exec(value.trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const unit = m[2].toLowerCase();
+  const ms = n * (
+    unit === "s" ? 1_000 :
+    unit === "m" ? 60_000 :
+    unit === "h" ? 3_600_000 :
+    /* d */         86_400_000
+  );
+  if (ms > 365 * 86_400_000) return null;
+  return ms;
+}
 
 const MAX_FILES = 200;
 const MAX_TOTAL_BYTES = 50 * 1024 * 1024;
@@ -262,6 +300,10 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
     input.originalFilename,
   );
 
+  if (input.expiresAt != null && input.expiresAt.getTime() <= Date.now()) {
+    throw new ExpiryInPastError();
+  }
+
   // Create DB row first so we have a stable id even if Blob put fails.
   const inserted = await db
     .insert(projects)
@@ -273,6 +315,7 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
       entryPath,
       isProtected: !!(input.passwords && input.passwords.length > 0),
       blobPrefix,
+      expiresAt: input.expiresAt ?? null,
     })
     .returning();
   const project = inserted[0];
@@ -391,7 +434,26 @@ export async function updateProject(
   if (input.entryPath !== undefined)
     patch.entryPath = safeRelative(input.entryPath) || "index.html";
   if (input.isProtected !== undefined) patch.isProtected = input.isProtected;
+  // expiresAt: an explicit `null` clears the TTL ("make permanent"); a Date
+  // sets/extends it. `undefined` means "leave it alone". Past dates are
+  // accepted here (semantically "expire now") — unlike at create time, where
+  // we reject them as obviously-a-mistake.
+  if (input.expiresAt !== undefined) patch.expiresAt = input.expiresAt;
   await db.update(projects).set(patch).where(eq(projects.id, projectId));
+}
+
+/**
+ * Find projects whose TTL has lapsed. Used by the cron job; callers paginate
+ * by passing a `limit`. Ordered by oldest expiry first so a stuck row gets
+ * retried on every run.
+ */
+export async function findExpiredProjects(limit: number): Promise<Project[]> {
+  return db
+    .select()
+    .from(projects)
+    .where(sql`${projects.expiresAt} IS NOT NULL AND ${projects.expiresAt} <= NOW()`)
+    .orderBy(projects.expiresAt)
+    .limit(limit);
 }
 
 export async function addProjectPassword(
