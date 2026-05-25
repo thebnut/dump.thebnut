@@ -4,6 +4,7 @@ import { eq, and, isNull } from "drizzle-orm";
 import { db } from "./db";
 import { apiTokens, users, type User } from "./db/schema";
 import { hashToken, looksLikeToken } from "./tokens";
+import { contentOriginFor } from "./origins";
 
 // Public error envelope used across /api/v1 AND the public /p/<slug>/sheet/*
 // routes. The sheet routes hand-roll responses (don't go through jsonError)
@@ -136,6 +137,11 @@ export function serializeProject(p: {
   createdAt: Date;
   updatedAt: Date;
 }, baseUrl: string, accessCount?: number) {
+  // `baseUrl` here is the *content* origin (content.thebnut.com in prod),
+  // not the API origin (dump.thebnut.com). The handlers all pass
+  // `contentUrl(req)` so /p/<slug>/ lands on the right host. The API
+  // itself stays on dump.thebnut.com — callers don't care, they just
+  // follow `project.url`.
   return {
     id: p.id,
     slug: p.slug,
@@ -151,10 +157,10 @@ export function serializeProject(p: {
   };
 }
 
-export function siteUrl(req: NextRequest): string {
-  const env = process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/+$/, "");
-  if (env) return env;
+/** Origin to use for the `url` field of a serialised project — the host
+ *  where /p/<slug>/ actually lives (content.thebnut.com in prod, same as
+ *  the request origin on preview/dev). See src/lib/origins.ts. */
+export function contentUrl(req: NextRequest): string {
   const proto = req.headers.get("x-forwarded-proto") ?? "https";
-  const host = req.headers.get("host") ?? "dump.thebnut.com";
-  return `${proto}://${host}`;
+  return contentOriginFor(req.headers.get("host"), proto);
 }

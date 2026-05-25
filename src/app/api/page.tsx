@@ -67,6 +67,28 @@ export default function ApiDocsPage() {
         </div>
       </section>
 
+      <Section label="origins">
+        <P>
+          Two hosts, one app:
+        </P>
+        <Table
+          rows={[
+            ["dump.thebnut.com", "this site", "dashboard, login, /api/v1/*, /api/cron/*"],
+            ["content.thebnut.com", "user content", "/p/<slug>/* and /p/<slug>/sheet/*"],
+          ]}
+        />
+        <P>
+          The split keeps uploaded JavaScript on a separate origin from
+          authenticated dashboard cookies. <strong>API calls stay on{" "}
+          <Code>dump.thebnut.com</Code></strong> — only the published
+          project URL (the value of <Code>project.url</Code> in API
+          responses) lives on the content host. Old{" "}
+          <Code>dump.thebnut.com/p/&lt;slug&gt;/</Code> share-links{" "}
+          <Code>308</Code>-redirect to content, so anything you&rsquo;ve
+          already shared keeps working.
+        </P>
+      </Section>
+
       <Section label="auth">
         <P>
           All endpoints require a bearer token. Generate one at{" "}

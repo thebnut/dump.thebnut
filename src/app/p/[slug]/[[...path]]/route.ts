@@ -7,6 +7,7 @@ import {
 } from "@/lib/queries";
 import { readGateCookie } from "@/lib/gate";
 import { getClientIp } from "@/lib/util";
+import { contentRedirectTarget } from "@/lib/origins";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -16,6 +17,22 @@ export async function GET(
   { params }: { params: Promise<{ slug: string; path?: string[] }> },
 ) {
   const { slug, path } = await params;
+
+  // Legacy share-links land on the app host (dump.thebnut.com/p/...). Bounce
+  // them to the content origin BEFORE doing anything else — no DB lookup, no
+  // gate cookie read, no log write. The destination handler on the content
+  // origin will do all of that.
+  const legacy = contentRedirectTarget(
+    req.headers.get("host"),
+    req.nextUrl.pathname,
+    req.nextUrl.search,
+  );
+  if (legacy) {
+    const res = NextResponse.redirect(legacy, 308);
+    res.headers.set("Cache-Control", "public, max-age=300");
+    return res;
+  }
+
   const project = await projectBySlugPublic(slug);
   if (!project) return new NextResponse("Not found", { status: 404 });
 
