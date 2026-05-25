@@ -50,3 +50,7 @@ export function rateLimit(key: string, cfg: Config): RateLimitResult {
 // refillPerSec = capacity / 60 (the "per minute" intent).
 export const RL_DEFAULT: Config = { capacity: 60, refillPerSec: 1 }; // 60/min
 export const RL_UPLOAD: Config = { capacity: 10, refillPerSec: 10 / 60 }; // 10/min
+// Sheet CRUD on a public project is exposed to anyone with the URL — keep
+// the bucket tight so a single bot can't drain Sheets API quota or pollute
+// the linked sheet.
+export const RL_SHEET: Config = { capacity: 30, refillPerSec: 30 / 60 }; // 30/min

@@ -325,7 +325,13 @@ export async function listRows(range: Range): Promise<SheetRow[]> {
 
 export async function createRow(range: Range, row: SheetRow): Promise<SheetRow> {
   const headers = await ensureIdHeader(range);
-  const id = (row.id as string) || crypto.randomUUID();
+  // Always server-generate the id. NEVER honour a caller-supplied value —
+  // that would let a hostile POST inject a Sheets formula via the id cell
+  // (e.g. `{id: '=HYPERLINK("evil","x")'}`), which sanitiseCell wouldn't
+  // touch because we used to skip it for the id column. Server-generating
+  // UUIDs makes ids cryptographically random and side-steps the whole
+  // injection surface on that column.
+  const id = crypto.randomUUID();
   const newRow = headers.map((h) => {
     if (h === "id") return id;
     return sanitiseCell(Object.prototype.hasOwnProperty.call(row, h) ? row[h] : "");
