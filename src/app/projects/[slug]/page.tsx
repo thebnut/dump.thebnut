@@ -1,6 +1,8 @@
 import { redirect, notFound } from "next/navigation";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
+import { contentOriginFor } from "@/lib/origins";
 import {
   projectBySlugForUser,
   logsForProject,
@@ -50,6 +52,12 @@ export default async function ProjectManagePage({
     getProjectSheet(project.id),
   ]);
   const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? null;
+
+  // Link straight at the content origin so the "[open ↗]" button doesn't
+  // take a 308 hop through the app host on every click. Falls back to
+  // same-origin on preview/dev — see contentOriginFor().
+  const h = await headers();
+  const projectUrl = `${contentOriginFor(h.get("host"), h.get("x-forwarded-proto") ?? "https")}/p/${project.slug}/`;
 
   async function addPassword(formData: FormData) {
     "use server";
@@ -251,13 +259,14 @@ export default async function ProjectManagePage({
             /p/{project.slug}/ · {project.entryPath}
           </p>
         </div>
-        <Link
-          href={`/p/${project.slug}/`}
+        <a
+          href={projectUrl}
           target="_blank"
+          rel="noopener noreferrer"
           className="rounded-lg border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800 whitespace-nowrap shrink-0"
         >
           [open ↗]
-        </Link>
+        </a>
       </div>
 
       <section className="space-y-2">

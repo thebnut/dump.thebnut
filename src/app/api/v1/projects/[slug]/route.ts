@@ -4,10 +4,10 @@ import { db } from "@/lib/db";
 import { projects, accessLogs } from "@/lib/db/schema";
 import {
   authenticate,
+  contentUrl,
   jsonError,
   jsonOk,
   serializeProject,
-  siteUrl,
 } from "@/lib/api";
 import { deleteProject, updateProject, parseExpiresIn } from "@/lib/projects";
 import { rateLimit, RL_DEFAULT } from "@/lib/rate-limit";
@@ -57,7 +57,7 @@ export async function GET(req: NextRequest, { params }: Params) {
     return jsonError("forbidden", "You do not own this project.");
 
   return jsonOk({
-    project: serializeProject(project, siteUrl(req), project.accessCount),
+    project: serializeProject(project, contentUrl(req), project.accessCount),
   });
 }
 
@@ -128,7 +128,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (!updated || updated === "forbidden")
     return jsonError("internal_error", "Project disappeared after update.");
   return jsonOk({
-    project: serializeProject(updated, siteUrl(req), updated.accessCount),
+    project: serializeProject(updated, contentUrl(req), updated.accessCount),
   });
 }
 

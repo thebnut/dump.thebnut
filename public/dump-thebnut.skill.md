@@ -5,7 +5,14 @@ description: Upload static HTML/CSS/JS prototypes to dump.thebnut for hosting an
 
 # dump.thebnut
 
-Tiny hosted hub for throwaway HTML/CSS/JS prototypes. Upload a folder OR a single HTML file → get back a stable URL at `https://dump.thebnut.com/p/<slug>/`. Optional per-project password gate, optional TTL for auto-expiry, optional Google Sheet backend for CRUD apps. Access logs visible in the dashboard.
+Tiny hosted hub for throwaway HTML/CSS/JS prototypes. Upload a folder OR a single HTML file → get back a stable URL at `https://content.thebnut.com/p/<slug>/`. Optional per-project password gate, optional TTL for auto-expiry, optional Google Sheet backend for CRUD apps. Access logs visible in the dashboard.
+
+## Two hosts
+
+- **`dump.thebnut.com`** — dashboard, settings, and the bearer-auth API. All `curl` calls below go here.
+- **`content.thebnut.com`** — where uploaded prototypes are served. The `project.url` field in API responses points here. Legacy `dump.thebnut.com/p/<slug>/` links 308-redirect to the content host, so anything shared before the split keeps working.
+
+When reporting the URL back to the user, **always use the `.project.url` from the API response** — don't construct it from the slug yourself.
 
 ## When to use this skill
 
@@ -35,7 +42,7 @@ Don't proceed without the token — every endpoint will 401.
 
 ## Compatibility & features — what you can build
 
-Three patterns, all hosted as static prototypes at `https://dump.thebnut.com/p/<slug>/`. Decide which one fits BEFORE writing any code — the choice determines build constraints + which upload flow to use.
+Three patterns, all hosted as static prototypes at `https://content.thebnut.com/p/<slug>/`. Decide which one fits BEFORE writing any code — the choice determines build constraints + which upload flow to use.
 
 ### 1 · Single-file HTML
 
@@ -91,8 +98,8 @@ URLs are **relative** (just `sheet/rows`, not `/sheet/rows`). dump injects `<bas
 - Body cap: **64 KB** per write. Rate limit: **30 ops/min per IP per project**. Tell the user if they're building something that'll legitimately exceed either.
 - All POSTs use `Content-Type: application/json`. The proxy is same-origin so CORS isn't a concern.
 
-**After uploading**, tell the user (literally):
-> Published to https://dump.thebnut.com/p/<slug>/ — but it's not wired to a sheet yet. Open the manage page (https://dump.thebnut.com/projects/<slug>), share a Google Sheet with the displayed service-account address (Editor access), paste the sheet URL, click [link]. Then the prototype works.
+**After uploading**, tell the user (literally — substitute the real `project.url` from the response):
+> Published to <project.url> — but it's not wired to a sheet yet. Open the manage page (https://dump.thebnut.com/projects/<slug>), share a Google Sheet with the displayed service-account address (Editor access), paste the sheet URL, click [link]. Then the prototype works.
 
 → See "Dynamic data via Google Sheets" for the full setup steps + the alternative Apps Script flavour.
 
@@ -120,7 +127,7 @@ RESPONSE=$(curl -sS -w "\n%{http_code}" -X POST \
 handle_response "$RESPONSE"  # see below
 ```
 
-The file is stored at `index.html` so the URL is just `https://dump.thebnut.com/p/<slug>/`.
+The file is stored at `index.html` so the URL is just `https://content.thebnut.com/p/<slug>/` (also returned as `.project.url` in the response).
 
 ## Upload a folder (zip flow)
 
@@ -163,9 +170,9 @@ handle_response() {
 }
 ```
 
-Report the URL back to the user. Keep it terse:
+Report the URL back to the user. Use the `.project.url` from the response (it lives on `content.thebnut.com`). Keep it terse:
 
-> Published to https://dump.thebnut.com/p/marketing-v3/
+> Published to https://content.thebnut.com/p/marketing-v3/
 
 ## Re-upload (wipe + replace an existing project)
 
@@ -339,10 +346,10 @@ curl -sS -X POST https://dump.thebnut.com/api/v1/projects \
   -F "file=@./index.html" | jq -r .project.url
 ```
 
-Then tell the user (literally, terse):
+Then tell the user (literally, terse — using `project.url` from the response):
 
-> Published to https://dump.thebnut.com/p/<slug>/ — the SPA's there but
-> it's not wired to a sheet yet. Open the manage page
+> Published to https://content.thebnut.com/p/<slug>/ — the SPA's there
+> but it's not wired to a sheet yet. Open the manage page
 > (https://dump.thebnut.com/projects/<slug>), share a Google Sheet with
 > the displayed service-account address (Editor), paste the sheet URL,
 > click [link]. Then the prototype works.

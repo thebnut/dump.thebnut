@@ -3,6 +3,7 @@ import { projectBySlugPublic } from "@/lib/queries";
 import { getProjectSheet } from "@/lib/projects";
 import { readGateCookie } from "@/lib/gate";
 import { getClientIp } from "@/lib/util";
+import { contentRedirectTarget } from "@/lib/origins";
 import { rateLimit, RL_SHEET } from "@/lib/rate-limit";
 import {
   sheetRateLimitKey,
@@ -11,6 +12,20 @@ import {
   readSheetBody,
 } from "@/lib/sheet-shared";
 import { updateRow, removeRow } from "@/lib/sheets";
+
+// Legacy host: 308 to content origin. 308 preserves method + body so PATCH
+// payloads survive the redirect.
+function redirectIfLegacyHost(req: NextRequest): NextResponse | null {
+  const target = contentRedirectTarget(
+    req.headers.get("host"),
+    req.nextUrl.pathname,
+    req.nextUrl.search,
+  );
+  if (!target) return null;
+  const res = NextResponse.redirect(target, 308);
+  res.headers.set("Cache-Control", "public, max-age=300");
+  return res;
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +58,9 @@ function statusResponse(kind: "not_found" | "gone" | "unauthorized") {
 }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
+  const legacy = redirectIfLegacyHost(req);
+  if (legacy) return legacy;
+
   const { slug, id } = await params;
   const auth = await loadAndAuth(slug);
   if (auth.kind !== "ok") return statusResponse(auth.kind);
@@ -74,6 +92,9 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(req: NextRequest, { params }: Params) {
+  const legacy = redirectIfLegacyHost(req);
+  if (legacy) return legacy;
+
   const { slug, id } = await params;
   const auth = await loadAndAuth(slug);
   if (auth.kind !== "ok") return statusResponse(auth.kind);

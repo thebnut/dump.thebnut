@@ -1,10 +1,12 @@
-import { redirect } from "next/navigation";
+import { redirect, permanentRedirect } from "next/navigation";
+import { headers } from "next/headers";
 import bcrypt from "bcryptjs";
 import {
   projectBySlugPublic,
   passwordsForProjectFull,
 } from "@/lib/queries";
 import { setGateCookie } from "@/lib/gate";
+import { contentRedirectTarget } from "@/lib/origins";
 import { Logo } from "@/components/Logo";
 
 type Props = {
@@ -15,6 +17,22 @@ type Props = {
 export default async function GatePage({ params, searchParams }: Props) {
   const { slug } = await params;
   const sp = await searchParams;
+
+  // Legacy host: 308 to the content origin so the gate cookie is set there
+  // (where /p/<slug>/* actually serves from). Must happen BEFORE the DB
+  // lookup so a malformed legacy hit doesn't even touch Postgres.
+  const h = await headers();
+  const search = new URLSearchParams();
+  if (sp.to) search.set("to", sp.to);
+  if (sp.error) search.set("error", sp.error);
+  const qs = search.toString();
+  const legacy = contentRedirectTarget(
+    h.get("host"),
+    `/gate/${slug}`,
+    qs ? `?${qs}` : "",
+  );
+  if (legacy) permanentRedirect(legacy);
+
   const project = await projectBySlugPublic(slug);
   if (!project) redirect("/");
 

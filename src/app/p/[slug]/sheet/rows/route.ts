@@ -3,6 +3,7 @@ import { projectBySlugPublic } from "@/lib/queries";
 import { getProjectSheet } from "@/lib/projects";
 import { readGateCookie } from "@/lib/gate";
 import { getClientIp } from "@/lib/util";
+import { contentRedirectTarget } from "@/lib/origins";
 import { rateLimit, RL_SHEET } from "@/lib/rate-limit";
 import {
   sheetRateLimitKey,
@@ -11,6 +12,20 @@ import {
   readSheetBody,
 } from "@/lib/sheet-shared";
 import { listRows, createRow } from "@/lib/sheets";
+
+// Legacy host: bounce to the content origin before any DB / gate / Sheets
+// work. 308 preserves method + body, so POST bodies survive the redirect.
+function redirectIfLegacyHost(req: NextRequest): NextResponse | null {
+  const target = contentRedirectTarget(
+    req.headers.get("host"),
+    req.nextUrl.pathname,
+    req.nextUrl.search,
+  );
+  if (!target) return null;
+  const res = NextResponse.redirect(target, 308);
+  res.headers.set("Cache-Control", "public, max-age=300");
+  return res;
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -60,6 +75,9 @@ function gone(): NextResponse {
 }
 
 export async function GET(req: NextRequest, { params }: Params) {
+  const legacy = redirectIfLegacyHost(req);
+  if (legacy) return legacy;
+
   const { slug } = await params;
   const { project, sheet, expired } = await loadProjectAndSheet(slug);
   if (!project) return notFound();
@@ -84,6 +102,9 @@ export async function GET(req: NextRequest, { params }: Params) {
 }
 
 export async function POST(req: NextRequest, { params }: Params) {
+  const legacy = redirectIfLegacyHost(req);
+  if (legacy) return legacy;
+
   const { slug } = await params;
   const { project, sheet, expired } = await loadProjectAndSheet(slug);
   if (!project) return notFound();

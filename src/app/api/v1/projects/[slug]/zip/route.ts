@@ -4,10 +4,10 @@ import { db } from "@/lib/db";
 import { projects } from "@/lib/db/schema";
 import {
   authenticate,
+  contentUrl,
   jsonError,
   jsonOk,
   serializeProject,
-  siteUrl,
 } from "@/lib/api";
 import { replaceProjectFiles, ZipError } from "@/lib/projects";
 import { rateLimit, RL_UPLOAD } from "@/lib/rate-limit";
@@ -68,7 +68,7 @@ export async function POST(req: NextRequest, { params }: Params) {
       upload.name,
     );
     return jsonOk({
-      project: serializeProject(updated, siteUrl(req)),
+      project: serializeProject(updated, contentUrl(req)),
       replaced: true,
     });
   } catch (e) {

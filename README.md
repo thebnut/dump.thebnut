@@ -49,16 +49,21 @@ Use `npm run db:push` for local development; use `npm run db:migrate` in product
 ## Security notes
 
 - Passwords (user and project) are stored as bcrypt hashes only.
-- Project gate cookies are HMAC-signed with `AUTH_SECRET`, scoped to `/p/`, 24h TTL.
+- Project gate cookies are HMAC-signed with `AUTH_SECRET`, 24h TTL.
 - Access logs store the matched password's **label**, never the raw password entered.
 - File serving streams through the origin so we can log each HTML page load and apply the gate.
 - Path traversal in zip uploads is rejected (`../`, absolute paths, trailing-slash entries).
 - 50 MB / 200 file upload cap.
+- **Origin split**: uploaded prototypes are served from `content.thebnut.com`, not `dump.thebnut.com`, so JS inside a hosted prototype can't reach dashboard cookies or invoke Server Actions on the authenticated origin. Legacy `dump.thebnut.com/p/<slug>/` links 308-redirect to the content host, so anything shared before the split keeps working. See [`src/lib/origins.ts`](src/lib/origins.ts).
 
 ## Deployment
 
 This app is deployed to Vercel from the `main` branch of this repo.
-Custom domains: `dump.thebnut.com` (primary) and `url.thebnut.com` (alias).
+Custom domains (all point at the same Vercel project — the app host-routes internally):
+
+- `dump.thebnut.com` — primary app host (dashboard, login, `/api/v1/*`, `/api/cron/*`).
+- `url.thebnut.com` — alias of the app host.
+- `content.thebnut.com` — user-content host (`/p/<slug>/*`, `/p/<slug>/sheet/*`, `/gate/<slug>`).
 
 Required env vars on Vercel:
 
@@ -66,6 +71,7 @@ Required env vars on Vercel:
 - `BLOB_READ_WRITE_TOKEN` — set automatically by the Vercel Blob integration
 - `AUTH_SECRET` — generate with `openssl rand -base64 32`
 - `SEED_ADMIN_EMAIL` / `SEED_ADMIN_PASSWORD` (optional) — bootstrap a first admin if no users exist
+- `NEXT_PUBLIC_CONTENT_URL` (optional) — override the content origin. Defaults to `https://content.thebnut.com` in production; preview/dev fall back to single-origin.
 
 ## Dynamic prototypes (Google Sheets backend)
 
