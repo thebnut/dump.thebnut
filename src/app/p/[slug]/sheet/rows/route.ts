@@ -5,11 +5,11 @@ import { readGateCookie } from "@/lib/gate";
 import { getClientIp } from "@/lib/util";
 import { rateLimit, RL_SHEET } from "@/lib/rate-limit";
 import {
-  listRows,
-  createRow,
-  SheetsError,
-  type SheetRow,
-} from "@/lib/sheets";
+  sheetRateLimitKey,
+  tooManyResponse,
+  sheetErrorResponse,
+} from "@/lib/sheet-shared";
+import { listRows, createRow, type SheetRow } from "@/lib/sheets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -56,44 +56,6 @@ function unauthorized(): NextResponse {
 function gone(): NextResponse {
   return NextResponse.json({ error: { code: "gone" } }, { status: 410 });
 }
-function tooMany(retryAfterSec: number): NextResponse {
-  return NextResponse.json(
-    { error: { code: "rate_limited", retryAfterSec } },
-    { status: 429, headers: { "Retry-After": String(retryAfterSec) } },
-  );
-}
-
-/**
- * Sanitise upstream errors before returning to the client. Raw Google
- * Sheets API response bodies + OAuth token-endpoint errors can leak the
- * service account email, GCP project name, JWT failure reasons, etc. —
- * none of which should be visible to anonymous prototype viewers.
- * Logs the detail server-side (visible in Vercel function logs) and
- * returns a generic code to the caller.
- */
-function sheetError(slug: string, err: unknown): NextResponse {
-  if (err instanceof SheetsError) {
-    console.error(`[sheet ${slug}] sheets api error ${err.status}: ${err.detail}`);
-    // Upstream auth/visibility problems (403/404) usually mean someone
-    // unshared the sheet or the link is stale. The owner needs to know;
-    // anonymous viewers don't get details.
-    if (err.status === 403 || err.status === 404) {
-      return NextResponse.json(
-        { error: { code: "sheet_unreachable" } },
-        { status: 502 },
-      );
-    }
-    return NextResponse.json(
-      { error: { code: "sheets_api" } },
-      { status: 502 },
-    );
-  }
-  console.error(`[sheet ${slug}] unexpected:`, err);
-  return NextResponse.json(
-    { error: { code: "internal_error" } },
-    { status: 500 },
-  );
-}
 
 export async function GET(req: NextRequest, { params }: Params) {
   const { slug } = await params;
@@ -103,8 +65,8 @@ export async function GET(req: NextRequest, { params }: Params) {
   if (!sheet) return notFound();
   if (!(await gateOk(req, project))) return unauthorized();
 
-  const rl = rateLimit(`sheet:r:${project.id}:${getClientIp(req)}`, RL_SHEET);
-  if (!rl.allowed) return tooMany(rl.retryAfterSec);
+  const rl = rateLimit(sheetRateLimitKey(project.id, getClientIp(req)), RL_SHEET);
+  if (!rl.allowed) return tooManyResponse(rl.retryAfterSec);
 
   try {
     const rows = await listRows({
@@ -115,7 +77,7 @@ export async function GET(req: NextRequest, { params }: Params) {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (err) {
-    return sheetError(slug, err);
+    return sheetErrorResponse(slug, err);
   }
 }
 
@@ -127,8 +89,8 @@ export async function POST(req: NextRequest, { params }: Params) {
   if (!sheet) return notFound();
   if (!(await gateOk(req, project))) return unauthorized();
 
-  const rl = rateLimit(`sheet:w:${project.id}:${getClientIp(req)}`, RL_SHEET);
-  if (!rl.allowed) return tooMany(rl.retryAfterSec);
+  const rl = rateLimit(sheetRateLimitKey(project.id, getClientIp(req)), RL_SHEET);
+  if (!rl.allowed) return tooManyResponse(rl.retryAfterSec);
 
   let body: SheetRow;
   try {
@@ -153,6 +115,6 @@ export async function POST(req: NextRequest, { params }: Params) {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (err) {
-    return sheetError(slug, err);
+    return sheetErrorResponse(slug, err);
   }
 }
