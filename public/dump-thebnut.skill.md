@@ -210,11 +210,9 @@ curl -X PATCH https://dump.thebnut.com/api/v1/projects/$SLUG \
 
 ## Dynamic data via Google Sheets
 
-dump only serves static files, but a static SPA can talk to any HTTPS
-endpoint. The supported pattern for "dynamic" prototypes is a Google
-Apps Script Web App wrapping a Google Sheet — the user gets a tiny
-CRUD JSON API with zero infrastructure, owned entirely by their Google
-account.
+dump can wire a Google Sheet to a project as a CRUD backend. The SPA
+calls `/p/<slug>/sheet/rows` (same-origin) and dump's server proxies
+reads + writes to the user's sheet via a service account.
 
 ### Trigger this pattern when
 
@@ -224,78 +222,94 @@ The user asks for something like:
 - "back this with a spreadsheet" / "use a Google Sheet"
 - anything where they want CRUD without a real backend
 
-If they want auth, multi-user permissions, or sensitive data, **stop and
-warn them** — the Apps Script Web App deployment is anonymous (anyone
-with the URL can read and mutate the sheet). For those cases, recommend
-they raise it with Brett directly; dump doesn't currently have a
-first-class auth-aware data layer.
+If they want auth, multi-user permissions, or sensitive data, **warn
+them**: who can read/write the sheet via the prototype mirrors the
+project itself. Public project → public CRUD. Protected project → gate
+cookie required. There's no per-user auth.
 
 ### What to generate
 
-Two files in the prototype folder, plus instructions for the user:
+Just `index.html` — the SPA. No script files, no backend, no copy-pasted
+credentials. The SPA hits `/sheet/rows` as a relative URL; dump's
+`<base href="/p/<slug>/">` injection resolves it to the right project.
 
-1. **`index.html`** — the SPA. Has a `SHEET_API` constant near the top
-   that the user replaces with their deployed Apps Script URL.
-
-2. **`apps-script.gs`** — Apps Script template. The user pastes this into
-   the script editor bound to their sheet.
-
-Reference implementations live at `examples/todo-sheet/` in the dump.thebnut
+Reference implementation lives at `examples/todo-sheet/` in the dump.thebnut
 repo (https://github.com/thebnut/dump.thebnut/tree/main/examples/todo-sheet).
-Generate analogous files for whatever the user actually asked for; keep
-the contract identical so the same script template works.
+Generate analogous files for whatever the user actually asked for.
 
-### The contract (don't deviate without reason)
+### The REST contract
 
-| Browser sends                                            | Script returns                                |
-| -------------------------------------------------------- | --------------------------------------------- |
-| `GET <SHEET_API>`                                        | `[{id, ...columns}]` — all rows               |
-| `POST` body `{"op":"create","row":{...}}`                | `{id, ...columns}` — the new row             |
-| `POST` body `{"op":"update","id":"...","row":{...}}`     | `{id, ...columns}` — the updated row         |
-| `POST` body `{"op":"delete","id":"..."}`                 | `{deleted: true, id}`                        |
+| Browser                          | Returns                              |
+| -------------------------------- | ------------------------------------ |
+| `GET /sheet/rows`               | `[{id, ...columns}]`                 |
+| `POST /sheet/rows`              | `{id, ...columns}` — id auto-set     |
+| `PATCH /sheet/rows/<id>`        | `{id, ...columns}`                   |
+| `DELETE /sheet/rows/<id>`       | `{deleted: true, id}`                |
 
-All POSTs use `Content-Type: text/plain;charset=utf-8` (NOT `application/json`)
-to keep the browser in "simple request" mode — Apps Script Web Apps don't
-handle CORS preflight reliably. The body is JSON-stringified anyway.
-
-The `id` column is auto-managed: the script adds it if missing, generates
-UUIDs on create, treats it as immutable on update. The first row of the
-sheet is the schema; the SPA can use any column names.
+All `Content-Type: application/json` — same-origin, no CORS games. The
+`id` column is server-managed: created on first write, UUID auto-
+generated, immutable on update.
 
 ### Setup steps to tell the user
 
-After uploading the SPA to dump:
+1. **Make a Google Sheet** with columns matching what your SPA expects
+   in row 1 (e.g. `id`, `title`, `done` for a todo list). `id` is
+   optional — dump adds it on first write and back-fills UUIDs.
+2. **Share the sheet** with dump's service account address as **Editor**.
+   The address is shown on the project manage page in the "Linked Sheet"
+   section. (Hint: `dump-thebnut@dump-thebnut-sheets.iam.gserviceaccount.com`,
+   but always copy from the dashboard — env var is the source of truth.)
+3. **Link the sheet** on the dump manage page — paste the sheet URL and
+   tab name, click [link].
 
-1. Make a Google Sheet with columns matching what your SPA expects in
-   row 1 (e.g. `id`, `title`, `done` for a todo list). `id` is optional —
-   the script adds it on first use.
-2. **Extensions → Apps Script** in the sheet, paste `apps-script.gs`, save.
-3. **Deploy → New deployment → Web app**: execute as Me, access Anyone,
-   click Deploy, authorize, copy the URL.
-4. Paste that URL into `index.html` as `SHEET_API`.
-5. Re-upload the prototype to dump (use the `/zip` re-upload endpoint).
+That's it. The SPA picks up the link automatically.
 
 ### One-shot script
 
 ```bash
-# After generating ./index.html and ./apps-script.gs in the project folder:
+# Upload the SPA. No URL to paste — dump's manage page handles linking.
 SLUG="${1:-my-prototype}"
 TITLE="${2:-$SLUG}"
 
-# Upload the SPA only — the Apps Script lives in Google, not in dump.
 curl -sS -X POST https://dump.thebnut.com/api/v1/projects \
   -H "Authorization: Bearer $DUMP_TOKEN" \
   -F "title=$TITLE" \
   -F "slug=$SLUG" \
-  -F "file=@./index.html"
+  -F "file=@./index.html" | jq -r .project.url
 ```
 
 Then tell the user (literally, terse):
 
-> Published to https://dump.thebnut.com/p/<slug>/ — but it's not wired up
-> to a sheet yet. Open the URL and you'll see a "not configured" warning.
-> Run through the 5 steps in apps-script.gs (top of the file) to deploy
-> the backend, paste the URL into index.html, and re-upload.
+> Published to https://dump.thebnut.com/p/<slug>/ — the SPA's there but
+> it's not wired to a sheet yet. Open the manage page
+> (https://dump.thebnut.com/projects/<slug>), share a Google Sheet with
+> the displayed service-account address (Editor), paste the sheet URL,
+> click [link]. Then the prototype works.
+
+### Linking via API instead of the manage page
+
+For end-to-end automation (e.g. you already have a sheet ID), you can
+link without touching the UI:
+
+```bash
+curl -sS -X PUT https://dump.thebnut.com/api/v1/projects/$SLUG/sheet \
+  -H "Authorization: Bearer $DUMP_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"sheetUrl":"https://docs.google.com/spreadsheets/d/<id>/edit","tabName":"Sheet1"}'
+```
+
+Returns 400 with a clear message if the sheet isn't shared with the
+service account. The service-account email is in the response of
+`GET /api/v1/projects/$SLUG/sheet`.
+
+### Alternative: own your backend (Google Apps Script)
+
+If a user doesn't want to share their sheet with dump's service account
+(blast radius concerns, etc.), they can still use a self-hosted Apps
+Script. The example folder keeps `apps-script.gs` for this. The SPA
+would need to swap `/sheet/rows` for the Apps Script URL and use
+`{op}`-style POST bodies instead of REST verbs. Don't suggest this path
+unless asked — it's higher friction.
 
 ## Important rules
 

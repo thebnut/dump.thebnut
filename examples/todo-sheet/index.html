@@ -105,9 +105,9 @@
   <ul id="list"></ul>
 
   <div class="config-warning" id="config-warning" hidden>
-    <strong>setup needed:</strong> open <code>index.html</code> and set
-    <code>SHEET_API</code> to your deployed Apps Script Web App URL.
-    See <code>README.md</code> in this folder for the 5-minute setup.
+    <strong>not configured:</strong> link a Google Sheet on this project's
+    dump.thebnut manage page. The dashboard shows a service-account email
+    to share the sheet with (Editor access), then this SPA Just Works.
   </div>
 </main>
 
@@ -115,10 +115,15 @@
   /* ====================================================================
      CONFIG
      ====================================================================
-     Paste your deployed Apps Script Web App URL here. See README.md and
-     apps-script.gs in this folder for setup instructions.
+     Talks to dump's /sheet/ proxy endpoints. The relative URL resolves
+     against /p/<slug>/ (dump injects a <base> href server-side), so the
+     SPA doesn't need to know its own slug — and works regardless of which
+     dump project it gets uploaded to.
+
+     The proxy talks to whatever Google Sheet you've linked to this
+     project on the manage page (Settings → Linked Sheet).
   */
-  const SHEET_API = "REPLACE_ME_WITH_YOUR_APPS_SCRIPT_URL";
+  const SHEET_API = "sheet/rows";
 
   /* ====================================================================
      State + DOM refs
@@ -131,29 +136,54 @@
   let items = [];
 
   /* ====================================================================
-     CRUD against the Apps Script
+     CRUD against dump's /sheet proxy. Plain REST verbs against a same-
+     origin endpoint, no CORS concerns.
 
-     Important: Apps Script Web Apps don't handle CORS preflight nicely,
-     so all writes are POSTs with Content-Type: text/plain and a JSON body.
-     That keeps the browser in "simple request" mode (no preflight). The
-     `op` field in the body picks the verb.
+       GET    /sheet/rows            list
+       POST   /sheet/rows            create
+       PATCH  /sheet/rows/<id>       update
+       DELETE /sheet/rows/<id>       delete
+
+     Server returns:
+       list:   [ {id, ...columns} ]
+       create: { id, ...columns }   (id auto-generated server-side)
+       update: { id, ...columns }
+       delete: { deleted: true, id }
   */
-  async function api(op, payload) {
-    if (!op) {
-      const res = await fetch(SHEET_API, { redirect: "follow" });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      return res.json();
+  async function apiList() {
+    const res = await fetch(SHEET_API);
+    if (res.status === 404) {
+      $warn.hidden = false;
+      setStatus("sheet not linked", true);
+      throw new Error("sheet not linked");
     }
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json();
+  }
+  async function apiCreate(row) {
     const res = await fetch(SHEET_API, {
       method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
-      body: JSON.stringify({ op, ...payload }),
-      redirect: "follow",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(row),
     });
     if (!res.ok) throw new Error("HTTP " + res.status);
-    const data = await res.json();
-    if (data && data.error) throw new Error(data.error + ": " + (data.message || ""));
-    return data;
+    return res.json();
+  }
+  async function apiUpdate(id, patch) {
+    const res = await fetch(`${SHEET_API}/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json();
+  }
+  async function apiDelete(id) {
+    const res = await fetch(`${SHEET_API}/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    return res.json();
   }
 
   /* ====================================================================
@@ -210,11 +240,14 @@
   */
   async function load() {
     try {
-      items = await api();
+      items = await apiList();
       setStatus(itemCount());
       render();
     } catch (err) {
-      setStatus("load failed — see console", true);
+      // apiList already showed "sheet not linked" if 404'd.
+      if (err.message !== "sheet not linked") {
+        setStatus("load failed — see console", true);
+      }
       console.error(err);
     }
   }
@@ -224,7 +257,7 @@
     items.push(temp);
     render();
     try {
-      const created = await api("create", { row: { title, done: false } });
+      const created = await apiCreate({ title, done: false });
       const idx = items.findIndex(x => x.id === temp.id);
       if (idx !== -1) items[idx] = created;
       setStatus(itemCount());
@@ -243,7 +276,7 @@
     t.done = next;
     render();
     try {
-      await api("update", { id: t.id, row: { done: next } });
+      await apiUpdate(t.id, { done: next });
     } catch (err) {
       t.done = before;
       setStatus("update failed", true);
@@ -257,7 +290,7 @@
     items = items.filter(x => x.id !== t.id);
     render();
     try {
-      await api("delete", { id: t.id });
+      await apiDelete(t.id);
       setStatus(itemCount());
     } catch (err) {
       items = before;
@@ -278,12 +311,9 @@
     add(title);
   });
 
-  if (SHEET_API === "REPLACE_ME_WITH_YOUR_APPS_SCRIPT_URL") {
-    setStatus("not configured", true);
-    $warn.hidden = false;
-  } else {
-    load();
-  }
+  // The "sheet not linked" warning is shown on demand by apiList() when
+  // it sees a 404 — meaning the project exists but no sheet is wired up.
+  load();
 </script>
 </body>
 </html>

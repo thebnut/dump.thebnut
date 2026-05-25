@@ -1,27 +1,24 @@
 # todo-sheet — a sheet-backed prototype
 
 A self-contained SPA that uses a Google Sheet as its database. Hosted as a
-normal static prototype on dump.thebnut; CRUD goes through a tiny Apps
-Script you deploy from the sheet itself.
+normal static prototype on dump.thebnut; CRUD goes through dump's
+server-side proxy to the sheet — no client-side Google credentials, no
+Apps Script for the user to deploy.
 
 ```
-[browser]  ──fetch──▶  [Apps Script Web App]  ──▶  [Google Sheet]
-   ▲                          (lives in your                  (your data)
-   │                           Google account)
+[browser]  ──fetch──▶  [dump.thebnut /sheet/]  ──Sheets API──▶  [Google Sheet]
+   ▲                          (server-side proxy,                   (your data)
+   │                           single service account)
 served as a regular
 dump.thebnut prototype
 ```
 
-No backend on dump's side. No service-account setup. Your sheet, your
-script, your auth.
-
 ## What you need
 
 - A Google account.
-- A `DUMP_TOKEN` from https://dump.thebnut.com/settings (for uploading the
-  SPA; optional if you're testing locally).
+- A `DUMP_TOKEN` from https://dump.thebnut.com/settings.
 
-## Setup (~5 minutes the first time)
+## Setup (~90 seconds the first time)
 
 ### 1. Create the sheet
 
@@ -31,52 +28,14 @@ example, add:
 | id | title | done |
 | -- | ----- | ---- |
 
-You can leave `id` blank — the script will populate it. Or skip the `id`
-column entirely; the script auto-adds it on first write.
+You can leave `id` blank — the proxy will populate it. Or skip the `id`
+column entirely; the proxy auto-adds it on first write and back-fills
+UUIDs for any existing rows.
 
-### 2. Paste the script
-
-In the sheet: **Extensions → Apps Script**. Delete the placeholder code,
-paste the contents of [`apps-script.gs`](./apps-script.gs), save.
-
-If your tab isn't called "Sheet1", edit `SHEET_NAME` at the top of the
-script.
-
-### 3. Deploy as a Web App
-
-In the Apps Script editor: **Deploy → New deployment → gear → Web app**.
-
-- Description: `todo-sheet`
-- Execute as: **Me**
-- Who has access: **Anyone**
-
-Click **Deploy**. The first time you'll have to authorize — Google shows
-a "this app isn't verified" interstitial; click *Advanced* → *Go to
-(unsafe)* → *Allow*. The script only touches the sheet it's bound to.
-
-Copy the **Web app URL** (`https://script.google.com/macros/s/<long-id>/exec`).
-
-> **Security note:** "Anyone" means the URL is unauthenticated. Anyone who
-> has it can read and mutate your sheet. Don't put anything sensitive in.
-> To revoke, redeploy as a new version (Deploy → Manage deployments →
-> Archive). The old URL stops working.
-
-### 4. Paste the URL into the SPA
-
-Open [`index.html`](./index.html) and replace:
-
-```js
-const SHEET_API = "REPLACE_ME_WITH_YOUR_APPS_SCRIPT_URL";
-```
-
-with your Web app URL.
-
-### 5. Upload to dump.thebnut
-
-From this folder:
+### 2. Upload this prototype to dump
 
 ```bash
-# single-file upload (since index.html is self-contained)
+cd examples/todo-sheet
 curl -sS -X POST https://dump.thebnut.com/api/v1/projects \
   -H "Authorization: Bearer $DUMP_TOKEN" \
   -F "title=todos" \
@@ -84,86 +43,115 @@ curl -sS -X POST https://dump.thebnut.com/api/v1/projects \
   -F "file=@./index.html"
 ```
 
-Or use the `dump-thebnut` skill in Claude Code — just say *"dump this
-file"* from inside this folder.
+You'll get back a URL like `https://dump.thebnut.com/p/todos/`. Opening
+it now will show a *"not configured"* warning — you haven't linked a
+sheet yet.
 
-You'll get back a URL like `https://dump.thebnut.com/p/todos/`. Open it,
-add a few items, watch them appear in the sheet in real time.
+### 3. Link the sheet on the manage page
+
+Open the project's manage page in your dashboard (or
+`https://dump.thebnut.com/projects/todos`).
+
+You'll see a **Linked Sheet** section showing dump's service-account
+address (something like
+`dump-thebnut@dump-thebnut-sheets.iam.gserviceaccount.com`). Copy it.
+
+Open your Google Sheet, click **Share**, paste that address as an
+**Editor**, click **Send** (uncheck "Notify people" — it's a robot).
+
+Back on dump's manage page: paste the sheet's URL into the field,
+optionally change the tab name from `Sheet1`, click **[link]**.
+
+That's it.
+
+### 4. Try it
+
+Open `https://dump.thebnut.com/p/todos/`. Add a few items, refresh,
+they're still there. Open the Google Sheet in another tab — rows
+appear with auto-generated UUIDs in column A.
 
 ## How it works
 
-The Apps Script handles four operations, dispatched by the `op` field of
-the POST body:
+The SPA makes plain REST calls to `/sheet/rows` (relative URL — dump
+injects `<base href="/p/<slug>/">` server-side so it resolves to
+`/p/<slug>/sheet/rows`):
 
-| Browser does                                | Apps Script does                              |
-| ------------------------------------------- | --------------------------------------------- |
-| `GET /exec`                                 | Returns all rows as `[{id, title, done, …}]`  |
-| `POST /exec` with `{op:"create", row:{…}}`  | Appends a row, assigns a UUID, returns it     |
-| `POST /exec` with `{op:"update", id, row}`  | Patches matching row by id, returns it        |
-| `POST /exec` with `{op:"delete", id}`       | Deletes matching row by id                    |
+| Browser                          | Server returns                       |
+| -------------------------------- | ------------------------------------ |
+| `GET /sheet/rows`               | `[{id, ...columns}]`                 |
+| `POST /sheet/rows`              | `{id, ...columns}` — id auto-set     |
+| `PATCH /sheet/rows/<id>`        | `{id, ...columns}`                   |
+| `DELETE /sheet/rows/<id>`       | `{deleted: true, id}`                |
 
-All POSTs use `Content-Type: text/plain` to dodge CORS preflight (Apps
-Script Web Apps don't handle preflight reliably). The body is JSON.
+dump's route handler authenticates to the Sheets API via a signed JWT
+(service account), reads the sheet ID from the `project_sheets` table,
+performs the CRUD, returns JSON.
 
-Row identity is the `id` column — UUIDs generated by the script.
-Reordering or deleting rows in the sheet by hand is fine; the SPA still
-finds rows by id.
+The `id` column is server-managed: created on first write, UUID
+auto-generated, immutable on update. Reordering or hand-editing rows
+in the sheet is fine — the SPA still finds them by id.
 
 ## Customising this for your own prototype
 
-This is a generic CRUD pattern. To re-use for something else (a guestbook,
-a feedback form, a leaderboard, a meal planner…):
+This is a generic CRUD pattern. To re-use for something else (a
+guestbook, a feedback form, a leaderboard, a meal planner…):
 
 1. Make a new sheet with whatever columns you want — first row is the schema.
-2. Deploy a fresh copy of [`apps-script.gs`](./apps-script.gs) bound to that sheet.
-3. In your prototype's JS, call `api("create", { row: { whatever, fields, you, want } })` etc.
+2. Upload your SPA to dump and link the sheet via the manage page.
+3. In your SPA's JS, call `fetch("sheet/rows")` etc. with the column
+   names you defined.
 4. Render however suits your UI.
 
-The script doesn't care what your columns are called — it just keeps the
+dump doesn't care what your columns are called — it just keeps the
 first row as headers and the rest as records.
 
 ## Caveats / limits
 
-- **Throughput**: Apps Script Web Apps cap around 30 invocations/minute
-  before throttling. Fine for personal/team prototypes; not for anything
-  popular.
-- **Concurrency**: writes are serialised by `LockService` inside the
-  script (`createRow_` / `updateRow_` / `deleteRow_` all take a
-  script-scoped lock). Last write still wins for a same-row update
-  collision — Sheets has no native row versioning — but two concurrent
-  deletes can't shift rows out from under each other any more, and a
-  parallel update can't land on a row that's just been removed. Reads
-  (`listRows_`) are lock-free; eventual consistency is fine for them.
-- **Auth**: "Anyone" deployment is anonymous. If you need per-user auth,
-  this is the wrong pattern (look at Plan B in the dump.thebnut roadmap).
-- **Formula injection — handled**: the script auto-escapes any string
-  value beginning with `=`, `+`, `-`, or `@` by prefixing it with `'`
-  (apostrophe). Without this, anyone who finds your Web App URL could
-  POST e.g. `{title: "=IMPORTXML(...)"}` and Sheets would dutifully fire
-  the formula. If you fork the script and remove `sanitiseCell_`, you
-  re-open this hole — don't.
-- **Type coercion**: the sheet stores booleans as `TRUE`/`FALSE` cells.
-  The SPA handles both `true` and `"TRUE"` for the `done` field. If you
-  add boolean columns of your own, follow the same pattern.
+- **Throughput**: Google Sheets API allows 60 read/100s and 60 write/100s
+  per service-account project. Fine for personal/team prototypes; if
+  you're popular enough to hit this, you've outgrown the pattern.
+- **Concurrency**: last-write wins on same-row updates. Sheets has no
+  native row versioning. Two concurrent deletes can't shift rows out
+  from under each other — dump's proxy uses `findRowIndex` immediately
+  before the delete, but there's still a small window. Acceptable for
+  prototypes.
+- **Auth**: who can read and write the sheet via your prototype mirrors
+  the project itself. If the dump project is public, the linked sheet
+  is publicly mutable via that URL. If you password-protect the project,
+  the gate cookie is required for `/sheet/*` calls too.
+- **Formula injection — handled**: dump auto-escapes any string value
+  beginning with `=`, `+`, `-`, or `@` (prefixes with `'` apostrophe).
+  Without this, anyone with the prototype's URL could POST
+  `{title: "=IMPORTXML(...)"}` and Sheets would fire the formula.
 - **Sheet edits by hand are fine** — but if you rename a column header,
   the SPA needs to be updated to match.
 
 ## Troubleshooting
 
-**"not configured" appears in the page.** You didn't replace
-`SHEET_API` in `index.html`. Re-read step 4.
+**"not configured" appears in the page.** No sheet linked to this
+project. Open the manage page (`/projects/<slug>`) and follow step 3.
 
-**CORS error in the console.** You probably deployed with "Who has access:
-Only myself" instead of "Anyone". Redeploy.
+**"sheet not accessible" when linking.** You didn't share the sheet
+with the service-account email shown on the manage page. Click
+**Share** in the sheet → paste the address → Editor → Send.
 
-**Authorization required.** First-deploy auth flow. Open the script URL
-once in a browser tab, click through the "this app isn't verified"
-warning, then the SPA will work.
+**Updates don't appear in the sheet.** Either the link to the sheet is
+stale (the sheet was deleted or moved) or the service account has lost
+Editor access. Re-link from the manage page.
 
-**Updates don't appear in the sheet.** Check the Apps Script execution
-log: Extensions → Apps Script → Executions. Errors there usually mean the
-sheet name doesn't match `SHEET_NAME`, or you don't have edit permission.
+**429 / rate limited.** Sheets API quota. Wait a minute. If this happens
+in normal use, you may be polling too aggressively — this example
+fetches on page load only.
 
-**429 / rate limited.** Apps Script quota. Wait a minute. If this happens
-in normal use, you may be polling too aggressively — this example doesn't
-poll; reads happen on page load only.
+## Alternative: own your backend (Google Apps Script)
+
+If you'd rather not give dump's service account access to your sheet,
+you can run your own backend via a Google Apps Script Web App. Earlier
+revisions of this example used that pattern — the building blocks are
+still in [`apps-script.gs`](./apps-script.gs) in this directory.
+
+You'd replace `SHEET_API = "sheet/rows"` in `index.html` with your
+Apps Script URL and change the four `apiList`/`apiCreate`/`apiUpdate`/
+`apiDelete` functions to POST `{op}`-style bodies instead of using
+PATCH/DELETE — see the `doPost` switch in `apps-script.gs` for the
+contract.
