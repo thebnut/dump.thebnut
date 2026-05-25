@@ -98,6 +98,35 @@ export default function ApiDocsPage() {
               "/api/v1/projects/{slug}/passwords/{id}",
               "remove a password",
             ],
+            [
+              "GET",
+              "/api/v1/projects/{slug}/sheet",
+              "fetch linked Google Sheet + service-account email",
+            ],
+            [
+              "PUT",
+              "/api/v1/projects/{slug}/sheet",
+              "link/replace { sheetUrl, tabName? }",
+            ],
+            [
+              "DELETE",
+              "/api/v1/projects/{slug}/sheet",
+              "unlink the sheet",
+            ],
+          ]}
+        />
+        <P>
+          When a project has a linked sheet, its public URL exposes a
+          tiny CRUD proxy that any browser can call (no bearer token —
+          same auth model as the project itself: public, or gated by the
+          project password if set):
+        </P>
+        <Table
+          rows={[
+            ["GET", "/p/{slug}/sheet/rows", "list rows as JSON"],
+            ["POST", "/p/{slug}/sheet/rows", "append a row (id auto-set)"],
+            ["PATCH", "/p/{slug}/sheet/rows/{id}", "update fields by id"],
+            ["DELETE", "/p/{slug}/sheet/rows/{id}", "delete row by id"],
           ]}
         />
       </Section>
@@ -160,11 +189,12 @@ export default function ApiDocsPage() {
           <Code>not_found</Code> (404), <Code>missing_field</Code> (400),{" "}
           <Code>slug_taken</Code> (409), <Code>zip_too_large</Code> (413),{" "}
           <Code>zip_invalid</Code> (400), <Code>rate_limited</Code> (429),{" "}
-          <Code>internal_error</Code> (500).
+          <Code>sheet_unreachable</Code> (400/502), <Code>sheets_api</Code> (502),{" "}
+          <Code>gone</Code> (410), <Code>internal_error</Code> (500).
         </P>
         <P>
           Rate limits: 60 req/min per token; uploads (create / replace) capped at
-          10/min.
+          10/min; sheet CRUD endpoints capped at 30/min per IP per project.
         </P>
       </Section>
 
@@ -218,6 +248,26 @@ curl -X PATCH https://dump.thebnut.com/api/v1/projects/marketing-v3 \\
   -H "Authorization: Bearer $DUMP_TOKEN" \\
   -H "Content-Type: application/json" \\
   -d '{"expiresAt":null}'`}</Pre>
+
+        <Sub>Link a Google Sheet (dynamic data)</Sub>
+        <Pre>{`# Inspect: returns the linked sheet (or null) plus the service-account
+# email to share the sheet with (Editor access required).
+curl https://dump.thebnut.com/api/v1/projects/marketing-v3/sheet \\
+  -H "Authorization: Bearer $DUMP_TOKEN"
+
+# Link / replace. 400 with sheet_unreachable if the sheet isn't shared
+# with the service account address.
+curl -X PUT https://dump.thebnut.com/api/v1/projects/marketing-v3/sheet \\
+  -H "Authorization: Bearer $DUMP_TOKEN" \\
+  -H "Content-Type: application/json" \\
+  -d '{"sheetUrl":"https://docs.google.com/spreadsheets/d/<id>/edit","tabName":"Sheet1"}'
+
+# Unlink.
+curl -X DELETE https://dump.thebnut.com/api/v1/projects/marketing-v3/sheet \\
+  -H "Authorization: Bearer $DUMP_TOKEN"
+
+# Once linked, the SPA on /p/marketing-v3/ can hit the same-origin proxy:
+curl https://dump.thebnut.com/p/marketing-v3/sheet/rows`}</Pre>
 
         <Sub>Delete</Sub>
         <Pre>{`curl -X DELETE https://dump.thebnut.com/api/v1/projects/marketing-v3 \\
