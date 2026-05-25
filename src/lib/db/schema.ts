@@ -134,6 +134,36 @@ export const projectFiles = pgTable(
   ],
 );
 
+// Links a project to a Google Sheet for dynamic CRUD via /p/<slug>/_sheet/*.
+// The actual sheet lives in the user's Google Drive; they share it with the
+// service account whose email is in the GOOGLE_SERVICE_ACCOUNT_EMAIL env
+// var. The route handler reads project_sheets to find which sheet to talk
+// to, then signs a JWT with the service account key from
+// GOOGLE_SERVICE_ACCOUNT_JSON_B64 to authenticate.
+//
+// One row per project enforced by unique(project_id) — keep it simple for
+// v1, add multi-sheet later if there's actual demand.
+export const projectSheets = pgTable(
+  "project_sheets",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    sheetId: text("sheet_id").notNull(),
+    tabName: text("tab_name").notNull().default("Sheet1"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (t) => [
+    uniqueIndex("project_sheets_project_idx").on(t.projectId),
+  ],
+);
+
 export const usersRelations = relations(users, ({ many }) => ({
   projects: many(projects),
 }));
@@ -172,9 +202,17 @@ export const projectFilesRelations = relations(projectFiles, ({ one }) => ({
   }),
 }));
 
+export const projectSheetsRelations = relations(projectSheets, ({ one }) => ({
+  project: one(projects, {
+    fields: [projectSheets.projectId],
+    references: [projects.id],
+  }),
+}));
+
 export type User = typeof users.$inferSelect;
 export type Project = typeof projects.$inferSelect;
 export type ProjectPassword = typeof projectPasswords.$inferSelect;
 export type AccessLog = typeof accessLogs.$inferSelect;
 export type ProjectFile = typeof projectFiles.$inferSelect;
 export type ApiToken = typeof apiTokens.$inferSelect;
+export type ProjectSheet = typeof projectSheets.$inferSelect;

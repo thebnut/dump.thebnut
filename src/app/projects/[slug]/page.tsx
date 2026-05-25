@@ -13,13 +13,20 @@ import {
   deleteProject,
   updateProject,
   parseExpiresIn,
+  getProjectSheet,
+  setProjectSheet,
+  unlinkProjectSheet,
 } from "@/lib/projects";
+import { parseSheetUrl, probeSheet, SheetsError } from "@/lib/sheets";
 import { TermRule } from "@/components/TermRule";
 
 type Props = {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ edit?: string; ok?: string }>;
-  // `ok` values used: password-updated, ttl-set, ttl-cleared, ttl-invalid
+  searchParams: Promise<{ edit?: string; ok?: string; tabs?: string }>;
+  // `ok` values used:
+  //   password-updated, ttl-set, ttl-cleared, ttl-invalid,
+  //   sheet-linked, sheet-unlinked, sheet-missing-url, sheet-bad-url,
+  //   sheet-unreachable, sheet-bad-tab (with ?tabs=…), sheet-error
 };
 
 export default async function ProjectManagePage({
@@ -36,10 +43,12 @@ export default async function ProjectManagePage({
   const project = await projectBySlugForUser(slug, session.user.id, isAdmin);
   if (!project) notFound();
 
-  const [logs, passwords] = await Promise.all([
+  const [logs, passwords, linkedSheet] = await Promise.all([
     logsForProject(project.id),
     passwordsForProject(project.id),
+    getProjectSheet(project.id),
   ]);
+  const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? null;
 
   async function addPassword(formData: FormData) {
     "use server";
@@ -142,6 +151,60 @@ export default async function ProjectManagePage({
       await updateProject(proj.id, { expiresAt: when });
       redirect(`/projects/${slug}?ok=ttl-set`);
     }
+  }
+
+  async function linkSheet(formData: FormData) {
+    "use server";
+    const session = await auth();
+    if (!session?.user) redirect("/login");
+    const proj = await projectBySlugForUser(
+      slug,
+      session.user.id,
+      session.user.role === "admin",
+    );
+    if (!proj) return;
+
+    const sheetUrlRaw = String(formData.get("sheetUrl") ?? "").trim();
+    const tabName = String(formData.get("tabName") ?? "Sheet1").trim() || "Sheet1";
+    if (!sheetUrlRaw) redirect(`/projects/${slug}?ok=sheet-missing-url`);
+
+    const sheetId = parseSheetUrl(sheetUrlRaw);
+    if (!sheetId) redirect(`/projects/${slug}?ok=sheet-bad-url`);
+
+    try {
+      const probe = await probeSheet(sheetId);
+      if (!probe.tabs.includes(tabName)) {
+        const qs = new URLSearchParams({
+          ok: "sheet-bad-tab",
+          tabs: probe.tabs.join(","),
+        });
+        redirect(`/projects/${slug}?${qs.toString()}`);
+      }
+      await setProjectSheet(proj.id, sheetId, tabName);
+      redirect(`/projects/${slug}?ok=sheet-linked`);
+    } catch (e) {
+      // Surface "not shared with service account" specifically; redirect
+      // exceptions thrown by Next aren't real errors.
+      if (e instanceof Error && e.message === "NEXT_REDIRECT") throw e;
+      if (e instanceof SheetsError && (e.status === 403 || e.status === 404)) {
+        redirect(`/projects/${slug}?ok=sheet-unreachable`);
+      }
+      redirect(`/projects/${slug}?ok=sheet-error`);
+    }
+  }
+
+  async function unlinkSheet() {
+    "use server";
+    const session = await auth();
+    if (!session?.user) redirect("/login");
+    const proj = await projectBySlugForUser(
+      slug,
+      session.user.id,
+      session.user.role === "admin",
+    );
+    if (!proj) return;
+    await unlinkProjectSheet(proj.id);
+    redirect(`/projects/${slug}?ok=sheet-unlinked`);
   }
 
   async function destroy() {
@@ -279,6 +342,110 @@ export default async function ProjectManagePage({
             <span className="text-neutral-600">{"// "}</span>
             expired projects 410-gone immediately; files are hard-deleted on the next hourly cron.
           </p>
+        </div>
+      </section>
+
+      <section className="space-y-2">
+        <TermRule label="linked sheet (optional)" />
+        <div className="rounded-xl border border-neutral-800 bg-neutral-900/40 p-6 space-y-4">
+          {linkedSheet ? (
+            <div className="space-y-2">
+              <p className="text-sm">
+                <span className="text-neutral-500">linked: </span>
+                <a
+                  href={`https://docs.google.com/spreadsheets/d/${linkedSheet.sheetId}/edit`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[#39ff88] hover:underline"
+                >
+                  /spreadsheets/d/{linkedSheet.sheetId.slice(0, 12)}…
+                </a>
+              </p>
+              <p className="text-xs text-neutral-500">
+                tab: <span className="text-neutral-300">{linkedSheet.tabName}</span>
+                {" · "}endpoint:{" "}
+                <code className="text-neutral-300">/p/{project.slug}/sheet/rows</code>
+              </p>
+              <form action={unlinkSheet} className="pt-2">
+                <button
+                  type="submit"
+                  className="rounded-lg border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800 text-neutral-300"
+                >
+                  [unlink]
+                </button>
+              </form>
+            </div>
+          ) : (
+            <>
+              <p className="text-xs text-neutral-500">
+                <span className="text-neutral-600">{"// "}</span>
+                Wire a Google Sheet as the project&apos;s CRUD backend. Your SPA calls{" "}
+                <code className="text-neutral-300">/sheet/rows</code> (same origin);
+                we proxy reads + writes to the sheet.
+              </p>
+              {serviceAccountEmail ? (
+                <div className="rounded-lg border border-dashed border-neutral-800 bg-neutral-950 p-3">
+                  <p className="text-xs text-neutral-500 mb-1">
+                    1. Share the sheet with this address (Editor access):
+                  </p>
+                  <code className="text-xs text-[#39ff88] break-all">
+                    {serviceAccountEmail}
+                  </code>
+                </div>
+              ) : (
+                <p className="text-xs text-red-400">
+                  ! GOOGLE_SERVICE_ACCOUNT_EMAIL env var not set — feature
+                  unavailable. Configure on Vercel.
+                </p>
+              )}
+              <form action={linkSheet} className="space-y-2">
+                <Field label="sheet URL or ID">
+                  <Input
+                    name="sheetUrl"
+                    placeholder="https://docs.google.com/spreadsheets/d/…"
+                    required
+                  />
+                </Field>
+                <Field label="tab name">
+                  <Input name="tabName" defaultValue="Sheet1" />
+                </Field>
+                <div className="flex justify-end pt-1">
+                  <button
+                    type="submit"
+                    className="rounded-lg border border-[#39ff88] bg-[#39ff88] text-neutral-950 px-3.5 py-1.5 text-sm font-semibold hover:bg-[#5fff9f]"
+                  >
+                    [link]
+                  </button>
+                </div>
+              </form>
+            </>
+          )}
+          {sp.ok === "sheet-linked" ? (
+            <p className="text-xs text-emerald-400">sheet linked.</p>
+          ) : null}
+          {sp.ok === "sheet-unlinked" ? (
+            <p className="text-xs text-emerald-400">sheet unlinked.</p>
+          ) : null}
+          {sp.ok === "sheet-missing-url" ? (
+            <p className="text-xs text-red-400">! sheet URL required.</p>
+          ) : null}
+          {sp.ok === "sheet-bad-url" ? (
+            <p className="text-xs text-red-400">! couldn&apos;t parse that URL.</p>
+          ) : null}
+          {sp.ok === "sheet-unreachable" ? (
+            <p className="text-xs text-red-400">
+              ! sheet not accessible — share it with the service account address
+              above (Editor access) and try again.
+            </p>
+          ) : null}
+          {sp.ok === "sheet-bad-tab" ? (
+            <p className="text-xs text-red-400">
+              ! that tab name doesn&apos;t exist. Available tabs: {sp.tabs ?? "—"}
+            </p>
+          ) : null}
+          {sp.ok === "sheet-error" ? (
+            <p className="text-xs text-red-400">! something went wrong. Check the Apps Script execution log or try again.</p>
+          ) : null}
         </div>
       </section>
 

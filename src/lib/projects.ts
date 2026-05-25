@@ -8,7 +8,9 @@ import {
   projects,
   projectFiles,
   projectPasswords,
+  projectSheets,
   type Project,
+  type ProjectSheet,
 } from "./db/schema";
 import { contentTypeFor, safeRelative, slugify } from "./util";
 
@@ -514,4 +516,42 @@ export async function removeProjectPassword(
       .set({ isProtected: false, updatedAt: new Date() })
       .where(eq(projects.id, projectId));
   }
+}
+
+// ---------------------------------------------------------------------------
+// Linked Google Sheet — one optional row per project. Read via the
+// /p/<slug>/_sheet/* route handlers; managed via /api/v1/projects/<slug>/sheet.
+// ---------------------------------------------------------------------------
+
+export async function getProjectSheet(
+  projectId: string,
+): Promise<ProjectSheet | null> {
+  const rows = await db
+    .select()
+    .from(projectSheets)
+    .where(eq(projectSheets.projectId, projectId))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+export async function setProjectSheet(
+  projectId: string,
+  sheetId: string,
+  tabName: string,
+): Promise<ProjectSheet> {
+  // Upsert. Drizzle's onConflictDoUpdate is the cleanest path; the unique
+  // index on project_id is what we conflict against.
+  const rows = await db
+    .insert(projectSheets)
+    .values({ projectId, sheetId, tabName })
+    .onConflictDoUpdate({
+      target: projectSheets.projectId,
+      set: { sheetId, tabName, updatedAt: new Date() },
+    })
+    .returning();
+  return rows[0];
+}
+
+export async function unlinkProjectSheet(projectId: string): Promise<void> {
+  await db.delete(projectSheets).where(eq(projectSheets.projectId, projectId));
 }
