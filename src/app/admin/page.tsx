@@ -1,12 +1,18 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import bcrypt from "bcryptjs";
+import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { users } from "@/lib/db/schema";
 import { allProjectsAdmin, listUsers } from "@/lib/queries";
+import { generatePassword, hashPassword } from "@/lib/passwords";
 import { TermRule } from "@/components/TermRule";
+import {
+  ResetPasswordButton,
+  type ResetState,
+} from "@/components/ResetPasswordButton";
 
 export default async function AdminPage({
   searchParams,
@@ -60,6 +66,44 @@ export default async function AdminPage({
     redirect("/admin?ok=1");
   }
 
+  async function resetUserPassword(
+    _prev: ResetState,
+    formData: FormData,
+  ): Promise<ResetState> {
+    "use server";
+    const session = await auth();
+    if (session?.user?.role !== "admin") {
+      return { ok: false, error: "unauthorized" };
+    }
+
+    const userId = String(formData.get("userId") ?? "");
+    // userId comes from a client-controlled hidden field. `users.id` is a
+    // Postgres uuid column, so a non-uuid value would make the query throw a
+    // 22P02 error instead of returning gracefully — validate the shape first.
+    if (!z.string().uuid().safeParse(userId).success) {
+      return { ok: false, error: "user not found" };
+    }
+
+    const found = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+    const user = found[0];
+    if (!user) return { ok: false, error: "user not found" };
+
+    const password = generatePassword();
+    const passwordHash = await hashPassword(password);
+    await db
+      .update(users)
+      .set({ passwordHash })
+      .where(eq(users.id, userId));
+
+    // Sessions are JWT, so existing sessions for this user are not revoked by
+    // changing the hash — matches the app's current behaviour elsewhere.
+    return { ok: true, email: user.email, password };
+  }
+
   return (
     <main className="mx-auto w-full max-w-5xl p-6 space-y-6 font-mono">
       <div>
@@ -105,9 +149,16 @@ export default async function AdminPage({
                       {u.role}
                     </span>
                   </div>
-                  <span className="text-xs text-neutral-600">
-                    {u.projectCount} project{u.projectCount === 1 ? "" : "s"}
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs text-neutral-600">
+                      {u.projectCount} project{u.projectCount === 1 ? "" : "s"}
+                    </span>
+                    <ResetPasswordButton
+                      userId={u.id}
+                      email={u.email}
+                      action={resetUserPassword}
+                    />
+                  </div>
                 </li>
               ))}
             </ul>
