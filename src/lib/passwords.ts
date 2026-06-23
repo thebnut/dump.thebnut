@@ -13,7 +13,7 @@ const ALPHABET =
 /**
  * Generate a strong, human-readable one-time password.
  *
- * 16 chars from a 55-char alphabet ≈ 93 bits of entropy. Uses rejection
+ * 16 chars from a 56-char alphabet ≈ 93 bits of entropy. Uses rejection
  * sampling so every character is uniformly distributed (no modulo bias).
  */
 export function generatePassword(length = 16): string {

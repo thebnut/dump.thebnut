@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import bcrypt from "bcryptjs";
+import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import { db } from "@/lib/db";
@@ -76,7 +77,12 @@ export default async function AdminPage({
     }
 
     const userId = String(formData.get("userId") ?? "");
-    if (!userId) return { ok: false, error: "missing user" };
+    // userId comes from a client-controlled hidden field. `users.id` is a
+    // Postgres uuid column, so a non-uuid value would make the query throw a
+    // 22P02 error instead of returning gracefully — validate the shape first.
+    if (!z.string().uuid().safeParse(userId).success) {
+      return { ok: false, error: "user not found" };
+    }
 
     const found = await db
       .select()
