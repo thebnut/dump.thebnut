@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { redirect } from "next/navigation";
 import bcrypt from "bcryptjs";
 import {
@@ -11,6 +12,21 @@ type Props = {
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ to?: string; error?: string }>;
 };
+
+// Link-preview crawlers (WhatsApp, Slack, iMessage…) never carry a gate
+// cookie, so for a protected prototype they land here and this is what the
+// preview card shows. Keep it generic — the root layout's "Brett's prototype
+// dump" is for the dashboard, not for links handed to other people.
+// Unprotected prototypes never reach this page (see redirect below); their
+// preview text is injected by the /p/[slug] route instead.
+export const metadata: Metadata = {
+  description: "Shared secure link",
+  openGraph: {
+    title: "dump.thebnut",
+    description: "Shared secure link",
+  },
+};
+
 
 export default async function GatePage({ params, searchParams }: Props) {
   const { slug } = await params;

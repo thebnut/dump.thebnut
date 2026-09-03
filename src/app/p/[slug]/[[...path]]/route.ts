@@ -127,10 +127,19 @@ export async function GET(
   //      regardless of whether the URL has a trailing slash. Next.js
   //      strips the slash via a 308, which would otherwise make
   //      relative paths resolve against /p/ instead of /p/<slug>/.
+  //   3. ensureDescriptionMeta — give link-preview crawlers a generic
+  //      description when the prototype doesn't declare one, so a shared
+  //      URL reads "Shared link" rather than nothing. Protected
+  //      prototypes get "Shared secure link" (crawlers normally hit the
+  //      gate page for those; see its metadata export).
   if (isHtml) {
     const text = await upstream.text();
     let rewritten = rewriteHtmlPaths(text, slug);
     rewritten = ensureBaseHref(rewritten, `/p/${slug}/`);
+    rewritten = ensureDescriptionMeta(
+      rewritten,
+      project.isProtected ? "Shared secure link" : "Shared link",
+    );
     return new NextResponse(rewritten, {
       status: 200,
       headers: {
@@ -190,6 +199,25 @@ export function ensureBaseHref(html: string, baseHref: string): string {
   return html.replace(
     /<head\b[^>]*>/i,
     (m) => `${m}\n<base href="${baseHref}">`,
+  );
+}
+
+// Inject <meta name="description"> + <meta property="og:description"> into
+// <head> when the page declares neither. A prototype that ships its own
+// description keeps it — the author knows what they want the preview to
+// say. No <head>: leave the document alone, same as ensureBaseHref.
+export function ensureDescriptionMeta(html: string, description: string): string {
+  // Quote-agnostic like ensureBaseHref's guard — minified HTML often ships
+  // <meta name=description ...> unquoted.
+  if (/<meta\b[^>]*\bname\s*=\s*["']?description\b/i.test(html)) return html;
+  if (/<meta\b[^>]*\bproperty\s*=\s*["']?og:description\b/i.test(html)) {
+    return html;
+  }
+  const safe = escapeHtml(description);
+  return html.replace(
+    /<head\b[^>]*>/i,
+    (m) =>
+      `${m}\n<meta name="description" content="${safe}">\n<meta property="og:description" content="${safe}">`,
   );
 }
 
