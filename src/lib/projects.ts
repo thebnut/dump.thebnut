@@ -414,9 +414,17 @@ export async function deleteProject(projectId: string): Promise<void> {
 }
 
 async function deleteProjectArtifacts(projectId: string, blobPrefix: string) {
+  // IMPORTANT: match on `${blobPrefix}/` (with the trailing slash), not the
+  // bare prefix. Blob `list({ prefix })` is a literal string-prefix match, so
+  // a bare prefix of "projects/janice-70th" also matches a sibling project's
+  // blobs at "projects/janice-70th-rsvps/..." — deleting another project's
+  // files whenever this one is re-uploaded. All of this project's files live
+  // under `${blobPrefix}/` (see uploadFilesToBlob), so the slash scopes the
+  // match to exactly this project.
+  const scopedPrefix = `${blobPrefix}/`;
   let cursor: string | undefined;
   do {
-    const page = await list({ prefix: blobPrefix, cursor });
+    const page = await list({ prefix: scopedPrefix, cursor });
     if (page.blobs.length > 0) {
       await del(page.blobs.map((b) => b.url));
     }
