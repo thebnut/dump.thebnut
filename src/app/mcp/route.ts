@@ -74,7 +74,7 @@ const authenticated = withMcpAuth(mcp, async (_req, token): Promise<AuthInfo | u
   const row = await oauthStore.getToken(hashSecret(token), false);
   if (!row || row.resource !== RESOURCE || row.accessExpiresAt <= new Date()) return undefined;
   return { token, clientId: CLIENT_ID, scopes: row.scope, expiresAt: Math.floor(row.accessExpiresAt.getTime() / 1000), resource: new URL(RESOURCE), extra: { userId: row.userId } };
-}, { required: true, resourceUrl: RESOURCE, resourceMetadataPath: "/.well-known/oauth-protected-resource" });
+}, { required: true, resourceUrl: ISSUER, resourceMetadataPath: "/.well-known/oauth-protected-resource" });
 
 export async function POST(req: Request) {
   try {

@@ -10,7 +10,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "seed": "tsx scripts/seed.ts",
-    "user": "tsx scripts/create-user.ts"
+    "user": "tsx scripts/create-user.ts",
+    "test": "vitest run"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.2",

@@ -158,7 +158,7 @@ const WALLET_MAX_ENTRIES = 25; // bound cookie size; most-recent-first
 let walletKeyCache: Buffer | null = null;
 function walletKey(): Buffer {
   if (!walletKeyCache) {
-    walletKeyCache = crypto.scryptSync(SECRET, "dt-wallet-v1", 32);
+    walletKeyCache = crypto.scryptSync(getSecret(), "dt-wallet-v1", 32);
   }
   return walletKeyCache;
 }

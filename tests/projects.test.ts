@@ -20,6 +20,8 @@ vi.mock("@vercel/blob", () => ({
 }));
 import { createProject, replaceProjectFiles } from "../src/lib/projects";
 import { oauthStore } from "../src/lib/oauth-db";
+import { POST as mcpPost } from "../src/app/mcp/route";
+import { RESOURCE, hashSecret } from "../src/lib/oauth-policy";
 
 const pg = new PGlite();
 const db = drizzle(pg, { schema });
@@ -97,5 +99,45 @@ describe("OAuth SQL storage", () => {
     expect(await oauthStore.revokeToken(token.refreshHash, true)).toBe(false);
     expect(await oauthStore.getToken(token.hash, false)).toBeUndefined();
     await expect(oauthStore.saveToken({ ...token, hash: "other", refreshHash: "other-refresh", userId: "22222222-2222-4222-8222-222222222222" })).rejects.toThrow();
+  });
+});
+
+describe("real MCP transport with scoped SQL tokens", () => {
+  async function call(method: string, params: unknown, token?: string) {
+    const response = await mcpPost(new Request(RESOURCE, { method: "POST", headers: { "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-06-18", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) }));
+    const raw = await response.text();
+    const data = raw.startsWith("event:") ? raw.split("\n").find(line => line.startsWith("data: "))!.slice(6) : raw;
+    return { response, body: JSON.parse(data) };
+  }
+  async function token(scopes = ["projects:read"]) {
+    const secret = "t".repeat(43);
+    await oauthStore.saveToken({ hash: hashSecret(secret), refreshHash: "transport-refresh", userId: owner, scope: scopes, resource: RESOURCE, accessExpiresAt: new Date(Date.now() + 60000), refreshExpiresAt: new Date(Date.now() + 120000) });
+    return secret;
+  }
+  it("challenges unauthenticated requests with the pinned metadata URL", async () => {
+    const { response } = await call("tools/list", {});
+    expect(response.status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toContain("https://dump.thebnut.com/.well-known/oauth-protected-resource");
+  });
+  it("lists the five tools and delivers a complete portable workflow", async () => {
+    const auth = await token();
+    const listed = await call("tools/list", {}, auth);
+    expect(listed.response.status).toBe(200);
+    expect(listed.body.result.tools.map((t: { name: string }) => t.name)).toContain("get_workflow");
+    const result = await call("tools/call", { name: "get_workflow", arguments: { skill: "limitless" } }, auth);
+    expect(result.body.result.isError).not.toBe(true);
+    expect(result.body.result.content[0].text).toContain("Australia/Brisbane");
+  });
+  it("does not let a read-only token publish a project", async () => {
+    const result = await call("tools/call", { name: "create_project", arguments: { slug: "should-not-exist", title: "Test", entryPath: "index.html", files: [{ path: "index.html", content: "<head></head>", encoding: "utf8" }] } }, await token());
+    expect(result.body.result.isError).toBe(true);
+    expect(await db.select().from(schema.projects)).toHaveLength(0);
+  });
+  it("rejects expired and wrong-audience bearer tokens", async () => {
+    const auth = await token();
+    await db.update(schema.oauthTokens).set({ resource: "https://other.example/mcp" });
+    expect((await call("tools/list", {}, auth)).response.status).toBe(401);
+    await db.update(schema.oauthTokens).set({ resource: RESOURCE, accessExpiresAt: new Date(0) });
+    expect((await call("tools/list", {}, auth)).response.status).toBe(401);
   });
 });
