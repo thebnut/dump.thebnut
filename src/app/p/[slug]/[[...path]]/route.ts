@@ -7,8 +7,9 @@ import {
   findProjectFile,
   passwordsForProjectFull,
 } from "@/lib/queries";
-import { readGateCookie, readWallet, setGateCookie } from "@/lib/gate";
+import { readVerifiedGateCookie, readWallet, setGateCookie } from "@/lib/gate";
 import { getClientIp } from "@/lib/util";
+import { contentRedirectTarget } from "@/lib/origins";
 
 // Try every password the visitor has previously entered (the wallet) against
 // this prototype's stored hashes. Returns the matching password label id, or
@@ -37,6 +38,22 @@ export async function GET(
   { params }: { params: Promise<{ slug: string; path?: string[] }> },
 ) {
   const { slug, path } = await params;
+
+  // Legacy share-links land on the app host (dump.thebnut.com/p/...). Bounce
+  // them to the content origin BEFORE doing anything else — no DB lookup, no
+  // gate cookie read, no log write. The destination handler on the content
+  // origin will do all of that.
+  const legacy = contentRedirectTarget(
+    req.headers.get("host"),
+    req.nextUrl.pathname,
+    req.nextUrl.search,
+  );
+  if (legacy) {
+    const res = NextResponse.redirect(legacy, 308);
+    res.headers.set("Cache-Control", "public, max-age=300");
+    return res;
+  }
+
   const project = await projectBySlugPublic(slug);
   if (!project) return new NextResponse("Not found", { status: 404 });
 
@@ -77,7 +94,7 @@ export async function GET(
   let passwordLabelUsed: string | null = null;
   let passwordLabelIdUsed: string | null = null;
   if (project.isProtected) {
-    const ok = await readGateCookie(project.id);
+    const ok = await readVerifiedGateCookie(project.id);
     if (ok) {
       passwordLabelIdUsed = ok.passwordLabelId;
       // Sliding window: re-stamp the gate cookie so an actively-used prototype
@@ -135,27 +152,23 @@ export async function GET(
   }
 
   // Log only "page" loads (HTML), not every asset, to keep the log readable.
+  // Wrap the insert: a logging failure (e.g. a race where the password got
+  // deleted between the gate check and here, tripping the FK constraint)
+  // must never block the user from seeing the page they're authorised for.
   const isHtml = file.contentType.startsWith("text/html");
   if (isHtml) {
-    if (passwordLabelIdUsed) {
-      const { db: _db } = await import("@/lib/db");
-      const { projectPasswords } = await import("@/lib/db/schema");
-      const { eq } = await import("drizzle-orm");
-      const [pw] = await _db
-        .select({ label: projectPasswords.label })
-        .from(projectPasswords)
-        .where(eq(projectPasswords.id, passwordLabelIdUsed))
-        .limit(1);
-      passwordLabelUsed = pw?.label ?? null;
+    try {
+      await db.insert(accessLogs).values({
+        projectId: project.id,
+        ip: getClientIp(req),
+        userAgent: req.headers.get("user-agent") ?? null,
+        path: requested,
+        passwordLabelUsed,
+        passwordLabelId: passwordLabelIdUsed,
+      });
+    } catch (e) {
+      console.error(`[access-log ${slug}] insert failed:`, e);
     }
-    await db.insert(accessLogs).values({
-      projectId: project.id,
-      ip: getClientIp(req),
-      userAgent: req.headers.get("user-agent") ?? null,
-      path: requested,
-      passwordLabelUsed,
-      passwordLabelId: passwordLabelIdUsed,
-    });
   }
 
   // For HTML files, two transforms on the way out:

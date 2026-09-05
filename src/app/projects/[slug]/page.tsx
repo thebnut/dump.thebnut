@@ -1,6 +1,8 @@
 import { redirect, notFound } from "next/navigation";
+import { headers } from "next/headers";
 import Link from "next/link";
 import { auth } from "@/lib/auth";
+import { contentOriginFor } from "@/lib/origins";
 import {
   projectBySlugForUser,
   logsForProject,
@@ -16,6 +18,7 @@ import {
   getProjectSheet,
   setProjectSheet,
   unlinkProjectSheet,
+  TooManyPasswordsError,
 } from "@/lib/projects";
 import { parseSheetUrl, probeSheet, SheetsError } from "@/lib/sheets";
 import { linkSheetSchema } from "@/lib/sheet-shared";
@@ -25,7 +28,7 @@ type Props = {
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ edit?: string; ok?: string; tabs?: string }>;
   // `ok` values used:
-  //   password-updated, ttl-set, ttl-cleared, ttl-invalid,
+  //   password-updated, password-limit, ttl-set, ttl-cleared, ttl-invalid,
   //   sheet-linked, sheet-unlinked, sheet-missing-url, sheet-bad-url,
   //   sheet-unreachable, sheet-bad-tab (with ?tabs=…), sheet-error
 };
@@ -51,6 +54,12 @@ export default async function ProjectManagePage({
   ]);
   const serviceAccountEmail = process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL ?? null;
 
+  // Link straight at the content origin so the "[open ↗]" button doesn't
+  // take a 308 hop through the app host on every click. Falls back to
+  // same-origin on preview/dev — see contentOriginFor().
+  const h = await headers();
+  const projectUrl = `${contentOriginFor(h.get("host"), h.get("x-forwarded-proto") ?? "https")}/p/${project.slug}/`;
+
   async function addPassword(formData: FormData) {
     "use server";
     const session = await auth();
@@ -64,7 +73,14 @@ export default async function ProjectManagePage({
     const label = String(formData.get("label") ?? "").trim() || "default";
     const pw = String(formData.get("password") ?? "");
     if (!pw) return;
-    await addProjectPassword(proj.id, label, pw);
+    try {
+      await addProjectPassword(proj.id, label, pw);
+    } catch (e) {
+      if (e instanceof TooManyPasswordsError) {
+        redirect(`/projects/${slug}?ok=password-limit`);
+      }
+      throw e;
+    }
     redirect(`/projects/${slug}`);
   }
 
@@ -251,13 +267,14 @@ export default async function ProjectManagePage({
             /p/{project.slug}/ · {project.entryPath}
           </p>
         </div>
-        <Link
-          href={`/p/${project.slug}/`}
+        <a
+          href={projectUrl}
           target="_blank"
+          rel="noopener noreferrer"
           className="rounded-lg border border-neutral-700 px-3 py-1.5 text-sm hover:bg-neutral-800 whitespace-nowrap shrink-0"
         >
           [open ↗]
-        </Link>
+        </a>
       </div>
 
       <section className="space-y-2">
@@ -484,6 +501,11 @@ export default async function ProjectManagePage({
 
           {sp.ok === "password-updated" ? (
             <p className="text-xs text-emerald-400">password updated.</p>
+          ) : null}
+          {sp.ok === "password-limit" ? (
+            <p className="text-xs text-amber-400">
+              ! max passwords per project reached. remove one before adding another.
+            </p>
           ) : null}
 
           {passwords.length > 0 ? (

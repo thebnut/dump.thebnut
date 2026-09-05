@@ -7,10 +7,10 @@ import {
 } from "@/lib/db/schema";
 import {
   authenticate,
+  contentUrl,
   jsonError,
   jsonOk,
   serializeProject,
-  siteUrl,
 } from "@/lib/api";
 import {
   createProject,
@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
     .groupBy(projects.id)
     .orderBy(desc(projects.updatedAt));
 
-  const base = siteUrl(req);
+  const base = contentUrl(req);
   return jsonOk({
     projects: rows.map((r) => serializeProject(r, base, r.accessCount)),
   });
@@ -146,7 +146,7 @@ export async function POST(req: NextRequest) {
       expiresAt,
     });
     return jsonOk(
-      { project: serializeProject(project, siteUrl(req), 0) },
+      { project: serializeProject(project, contentUrl(req), 0) },
       201,
     );
   } catch (e) {

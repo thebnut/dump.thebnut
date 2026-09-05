@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { projects, projectPasswords } from "@/lib/db/schema";
 import { authenticate, jsonError, jsonOk } from "@/lib/api";
-import { addProjectPassword } from "@/lib/projects";
+import { addProjectPassword, TooManyPasswordsError } from "@/lib/projects";
 import { rateLimit, RL_DEFAULT } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
@@ -81,6 +81,15 @@ export async function POST(req: NextRequest, { params }: Params) {
       ? body.label.trim()
       : "default";
 
-  await addProjectPassword(project.id, label, password);
+  try {
+    await addProjectPassword(project.id, label, password);
+  } catch (e) {
+    if (e instanceof TooManyPasswordsError) {
+      // Reuse `forbidden` (403) rather than minting a new error code —
+      // the message is unambiguous and the API surface stays stable.
+      return jsonError("forbidden", e.message);
+    }
+    throw e;
+  }
   return jsonOk({ added: true, label }, 201);
 }

@@ -1,8 +1,11 @@
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import { signIn, auth } from "@/lib/auth";
 import { AuthError } from "next-auth";
 import { Logo } from "@/components/Logo";
 import { localCallback } from "@/lib/oauth-policy";
+import { ipFromHeaders } from "@/lib/util";
+import { rateLimit, RL_AUTH } from "@/lib/rate-limit";
 
 type Props = {
   searchParams: Promise<{ error?: string; callbackUrl?: string }>;
@@ -17,6 +20,22 @@ export default async function LoginPage({ searchParams }: Props) {
 
   async function login(formData: FormData) {
     "use server";
+    // Rate-limit BEFORE signIn so bcrypt.compare doesn't run on attempts
+    // we're going to reject anyway. Two buckets: per-IP overall (10/min)
+    // catches a single bot trying many emails; per-(IP, email) (also
+    // 10/min) caps grinding on one account — combined IP+email keying
+    // means a distributed attacker spamming someone's email can't lock
+    // the victim out from their own IP.
+    const h = await headers();
+    const ip = ipFromHeaders(h) ?? "unknown";
+    const email = String(formData.get("email") ?? "").trim().toLowerCase();
+    const ipRl = rateLimit(`login:ip:${ip}`, RL_AUTH);
+    if (!ipRl.allowed) redirect(`/login?error=rate_limited&callbackUrl=${encodeURIComponent(callbackUrl)}`);
+    if (email) {
+      const idRl = rateLimit(`login:${ip}:${email}`, RL_AUTH);
+      if (!idRl.allowed) redirect(`/login?error=rate_limited&callbackUrl=${encodeURIComponent(callbackUrl)}`);
+    }
+
     try {
       await signIn("credentials", {
         email: String(formData.get("email") ?? ""),
@@ -83,7 +102,11 @@ export default async function LoginPage({ searchParams }: Props) {
           />
         </div>
 
-        {error ? (
+        {error === "rate_limited" ? (
+          <p className="text-xs text-amber-400">
+            ! too many attempts. wait a minute and try again.
+          </p>
+        ) : error ? (
           <p className="text-xs text-red-400">! invalid email or password.</p>
         ) : null}
 

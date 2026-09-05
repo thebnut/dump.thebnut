@@ -93,6 +93,20 @@ export function parseExpiresIn(value: string): number | null {
 
 const MAX_FILES = 200;
 const MAX_TOTAL_BYTES = 50 * 1024 * 1024;
+// Hard cap on passwords per project. The gate's unlock action does N
+// sequential bcrypt.compares — capping N keeps the worst-case per-request
+// CPU cost bounded even if an owner script-adds dozens of passwords.
+// 25 is way more than any legitimate "label per audience" use case needs.
+const MAX_PASSWORDS_PER_PROJECT = 25;
+
+export class TooManyPasswordsError extends Error {
+  constructor() {
+    super(
+      `Project already has the maximum number of passwords (${MAX_PASSWORDS_PER_PROJECT}). Remove one before adding another.`,
+    );
+    this.name = "TooManyPasswordsError";
+  }
+}
 
 async function ensureUniqueSlug(base: string): Promise<string> {
   let slug = base;
@@ -484,6 +498,15 @@ export async function addProjectPassword(
   label: string,
   password: string,
 ): Promise<void> {
+  // Enforce the per-project cap before hashing (skip the ~100ms bcrypt
+  // cost on requests we're going to reject anyway).
+  const existing = await db
+    .select({ id: projectPasswords.id })
+    .from(projectPasswords)
+    .where(eq(projectPasswords.projectId, projectId));
+  if (existing.length >= MAX_PASSWORDS_PER_PROJECT) {
+    throw new TooManyPasswordsError();
+  }
   const hash = await bcrypt.hash(password, 10);
   await db
     .insert(projectPasswords)

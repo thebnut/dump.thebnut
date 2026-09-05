@@ -9,14 +9,22 @@ export function slugify(input: string): string {
     .slice(0, 64);
 }
 
-export function getClientIp(req: NextRequest | Request): string | null {
-  const headers = "headers" in req ? req.headers : null;
-  if (!headers) return null;
-  const xff = headers.get("x-forwarded-for");
+// Headers-shaped getter — accepts both standard `Headers` (Request.headers)
+// and `ReadonlyHeaders` (next/headers' headers()). Lets server actions
+// derive the IP without threading a Request through.
+export function ipFromHeaders(
+  h: { get(name: string): string | null },
+): string | null {
+  const xff = h.get("x-forwarded-for");
   if (xff) return xff.split(",")[0]?.trim() ?? null;
-  const real = headers.get("x-real-ip");
+  const real = h.get("x-real-ip");
   if (real) return real;
   return null;
+}
+
+export function getClientIp(req: NextRequest | Request): string | null {
+  if (!("headers" in req)) return null;
+  return ipFromHeaders(req.headers);
 }
 
 const CONTENT_TYPES: Record<string, string> = {
