@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { signIn, auth } from "@/lib/auth";
 import { AuthError } from "next-auth";
 import { Logo } from "@/components/Logo";
+import { localCallback } from "@/lib/oauth-policy";
 
 type Props = {
   searchParams: Promise<{ error?: string; callbackUrl?: string }>;
@@ -9,9 +10,9 @@ type Props = {
 
 export default async function LoginPage({ searchParams }: Props) {
   const session = await auth();
-  if (session?.user) redirect("/");
-
   const sp = await searchParams;
+  const callbackUrl = localCallback(sp.callbackUrl);
+  if (session?.user?.id) redirect(callbackUrl);
   const error = sp.error;
 
   async function login(formData: FormData) {
@@ -20,11 +21,11 @@ export default async function LoginPage({ searchParams }: Props) {
       await signIn("credentials", {
         email: String(formData.get("email") ?? ""),
         password: String(formData.get("password") ?? ""),
-        redirectTo: "/",
+        redirectTo: callbackUrl,
       });
     } catch (e) {
       if (e instanceof AuthError) {
-        redirect(`/login?error=invalid`);
+        redirect(`/login?error=invalid&callbackUrl=${encodeURIComponent(callbackUrl)}`);
       }
       throw e;
     }

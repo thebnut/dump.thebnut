@@ -14,19 +14,23 @@
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.2",
+    "@modelcontextprotocol/server": "^2.0.0",
+    "@node-oauth/oauth2-server": "^5.3.0",
     "@vercel/blob": "^2.3.3",
     "bcryptjs": "^3.0.3",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "jszip": "^3.10.1",
-    "next": "16.2.4",
-    "next-auth": "^5.0.0-beta.31",
+    "mcp-handler": "^2.1.1",
+    "next": "^16.2.12",
+    "next-auth": "^5.0.0-beta.32",
     "postgres": "^3.4.9",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
     "@types/node": "^20",
@@ -35,6 +39,7 @@
     "drizzle-kit": "^0.31.10",
     "tailwindcss": "^4",
     "tsx": "^4.21.0",
-    "typescript": "^5"
+    "typescript": "^5",
+    "vitest": "^4.1.11"
   }
 }

@@ -1,12 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { accessLogs } from "@/lib/db/schema";
+import bcrypt from "bcryptjs";
 import {
   projectBySlugPublic,
   findProjectFile,
+  passwordsForProjectFull,
 } from "@/lib/queries";
-import { readGateCookie } from "@/lib/gate";
+import { readGateCookie, readWallet, setGateCookie } from "@/lib/gate";
 import { getClientIp } from "@/lib/util";
+
+// Try every password the visitor has previously entered (the wallet) against
+// this prototype's stored hashes. Returns the matching password label id, or
+// null if nothing matches. Lets a prototype auto-unlock when it shares a
+// password with one the visitor has already unlocked, without a re-prompt.
+async function tryWalletUnlock(projectId: string): Promise<string | null> {
+  const wallet = await readWallet();
+  if (wallet.length === 0) return null;
+  const hashes = await passwordsForProjectFull(projectId);
+  if (hashes.length === 0) return null;
+  for (const candidate of wallet) {
+    for (const row of hashes) {
+      if (await bcrypt.compare(candidate, row.passwordHash)) {
+        return row.id;
+      }
+    }
+  }
+  return null;
+}
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -57,7 +78,12 @@ export async function GET(
   let passwordLabelIdUsed: string | null = null;
   if (project.isProtected) {
     const ok = await readGateCookie(project.id);
-    if (!ok) {
+    if (ok) {
+      passwordLabelIdUsed = ok.passwordLabelId;
+      // Sliding window: re-stamp the gate cookie so an actively-used prototype
+      // keeps extending its 30-day window instead of expiring mid-use.
+      await setGateCookie(project.id, ok.passwordLabelId);
+    } else {
       // `Sec-Fetch-Dest: document` (or `iframe` when embedded) indicates a
       // top-level navigation where redirecting to the gate is the right
       // behaviour. Everything else is a sub-resource fetched by the page
@@ -66,22 +92,35 @@ export async function GET(
       // we treat the request as a navigation and let it through to the gate.
       const dest = req.headers.get("sec-fetch-dest");
       const isNavigation = !dest || dest === "document" || dest === "iframe";
-      if (!isNavigation) {
-        return new NextResponse("Unauthorized", {
-          status: 401,
-          headers: { "Cache-Control": "no-store" },
-        });
+
+      // Before prompting, try the visitor's password wallet — if they've
+      // already unlocked another prototype with the same password, this one
+      // unlocks silently. Only attempted on navigations: the document request
+      // sets the gate cookie, so the page's sub-resources then take the cookie
+      // fast path above and never reach this bcrypt work.
+      const walletLabelId = isNavigation
+        ? await tryWalletUnlock(project.id)
+        : null;
+      if (walletLabelId) {
+        await setGateCookie(project.id, walletLabelId);
+        passwordLabelIdUsed = walletLabelId;
+      } else {
+        if (!isNavigation) {
+          return new NextResponse("Unauthorized", {
+            status: 401,
+            headers: { "Cache-Control": "no-store" },
+          });
+        }
+        const url = req.nextUrl.clone();
+        url.pathname = `/gate/${slug}`;
+        url.searchParams.set("to", `/p/${slug}/${requested}`);
+        const res = NextResponse.redirect(url);
+        // Belt-and-braces: keep edge caches from holding onto this redirect
+        // and serving it back to requests that DO have a valid cookie.
+        res.headers.set("Cache-Control", "no-store");
+        return res;
       }
-      const url = req.nextUrl.clone();
-      url.pathname = `/gate/${slug}`;
-      url.searchParams.set("to", `/p/${slug}/${requested}`);
-      const res = NextResponse.redirect(url);
-      // Belt-and-braces: keep edge caches from holding onto this redirect
-      // and serving it back to requests that DO have a valid cookie.
-      res.headers.set("Cache-Control", "no-store");
-      return res;
     }
-    passwordLabelIdUsed = ok.passwordLabelId;
   }
 
   const file = await findProjectFile(project.id, requested);

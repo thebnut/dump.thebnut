@@ -129,6 +129,7 @@ export default async function SettingsPage({ searchParams }: Props) {
       </div>
 
       {sp.new_token ? <NewTokenBanner token={sp.new_token} /> : null}
+      <Link href="/oauth/connections" className="underline text-sm">Manage connected apps</Link>
 
       <section className="space-y-2">
         <TermRule label={`api tokens · ${activeTokens.length} active`} />

@@ -5,7 +5,7 @@ import {
   projectBySlugPublic,
   passwordsForProjectFull,
 } from "@/lib/queries";
-import { setGateCookie } from "@/lib/gate";
+import { setGateCookie, addPasswordToWallet } from "@/lib/gate";
 import { Logo } from "@/components/Logo";
 
 type Props = {
@@ -26,7 +26,6 @@ export const metadata: Metadata = {
     description: "Shared secure link",
   },
 };
-
 
 export default async function GatePage({ params, searchParams }: Props) {
   const { slug } = await params;
@@ -64,6 +63,9 @@ export default async function GatePage({ params, searchParams }: Props) {
     }
 
     await setGateCookie(project.id, matched.id);
+    // Remember this password so other prototypes sharing it unlock without a
+    // re-prompt (see the wallet notes in src/lib/gate.ts).
+    await addPasswordToWallet(password);
     redirect(sanitizeRedirect(to, slug));
   }
 

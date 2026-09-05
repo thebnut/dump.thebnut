@@ -15,6 +15,9 @@ export const authConfig: NextAuthConfig = {
       // assets, favicon.
       const isPublic =
         path === "/login" ||
+        path === "/mcp" ||
+        path.startsWith("/.well-known/") ||
+        path.startsWith("/oauth/") ||
         path === "/api" ||
         path.startsWith("/p/") ||
         path.startsWith("/gate/") ||

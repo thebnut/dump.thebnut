@@ -137,6 +137,28 @@ export const projectFiles = pgTable(
   ],
 );
 
+// Scoped MCP OAuth grants are separate from the existing dashboard API keys.
+// Only digests of bearer tokens and authorization codes are stored.
+export const oauthCodes = pgTable("oauth_codes", {
+  hash: text("hash").primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  scope: text("scope").array().notNull(),
+  challenge: text("challenge").notNull(),
+  resource: text("resource").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+});
+export const oauthTokens = pgTable("oauth_tokens", {
+  hash: text("hash").primaryKey(),
+  refreshHash: text("refresh_hash").notNull().unique(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  scope: text("scope").array().notNull(),
+  resource: text("resource").notNull(),
+  accessExpiresAt: timestamp("access_expires_at", { withTimezone: true }).notNull(),
+  refreshExpiresAt: timestamp("refresh_expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+}, (t) => [index("oauth_tokens_user_idx").on(t.userId)]);
+
 // Links a project to a Google Sheet for dynamic CRUD via /p/<slug>/sheet/*.
 // The actual sheet lives in the user's Google Drive; they share it with the
 // service account whose email is in the GOOGLE_SERVICE_ACCOUNT_EMAIL env

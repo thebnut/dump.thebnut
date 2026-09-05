@@ -1,4 +1,5 @@
 import "server-only";
+import { randomUUID } from "node:crypto";
 import { put, del, list } from "@vercel/blob";
 import JSZip from "jszip";
 import bcrypt from "bcryptjs";
@@ -258,14 +259,18 @@ async function prepareUpload(
   const files = await extractZipFiles(fileEntries);
   if (files.length === 0) throw new ZipError("No usable files in zip");
 
-  return { files, entryPath: resolveEntryPath(files, entryHint) };
+  const entryPath = resolveEntryPath(files, entryHint);
+  if (!files.some(f => f.relPath === entryPath)) throw new ZipError("Entry file is missing from the upload");
+  return { files, entryPath };
 }
 
 async function uploadFilesToBlob(
   blobPrefix: string,
   prepared: PreparedFile[],
 ) {
-  return Promise.all(
+  // Wait for every upload before cleanup; Promise.all can reject while other
+  // writes are still running, leaving files behind after a failed upload.
+  const results = await Promise.allSettled(
     prepared.map(async (f) => {
       const result = await put(
         `${blobPrefix}/${f.relPath}`,
@@ -280,6 +285,13 @@ async function uploadFilesToBlob(
       return { ...f, url: result.url };
     }),
   );
+  const failed = results.find(r => r.status === "rejected");
+  if (failed?.status === "rejected") {
+    const urls = results.flatMap(r => r.status === "fulfilled" ? [r.value.url] : []);
+    if (urls.length) await del(urls).catch(() => {});
+    throw failed.reason;
+  }
+  return results.flatMap(r => r.status === "fulfilled" ? [r.value] : []);
 }
 
 export async function createProject(input: CreateProjectInput): Promise<Project> {
@@ -350,18 +362,19 @@ export async function createProject(input: CreateProjectInput): Promise<Project>
     return project;
   } catch (e) {
     await deleteProjectArtifacts(project.id, blobPrefix).catch(() => {});
+    await db.delete(projects).where(eq(projects.id, project.id));
     throw e;
   }
 }
 
-// Wipe + replace all files for an existing project. Resolves a new entry
-// path if `entryHint` is provided, otherwise keeps the current entry if
-// the new zip still contains a file at that path; otherwise re-derives.
+// Stage a complete new revision before swapping file rows in one transaction.
+// Passwords, expiry and the stable slug remain on the existing project row.
 export async function replaceProjectFiles(
   projectId: string,
   zipBuffer: ArrayBuffer,
   entryHint?: string,
   originalFilename?: string,
+  expectedUpdatedAt?: string,
 ): Promise<Project> {
   const found = await db
     .select()
@@ -370,6 +383,7 @@ export async function replaceProjectFiles(
     .limit(1);
   const project = found[0];
   if (!project) throw new Error("project not found");
+  if (expectedUpdatedAt && project.updatedAt.toISOString() !== expectedUpdatedAt) throw new Error("Project changed; fetch it again before updating");
 
   const { files, entryPath } = await prepareUpload(
     zipBuffer,
@@ -377,28 +391,27 @@ export async function replaceProjectFiles(
     originalFilename,
   );
 
-  // Wipe existing blobs + file rows, but keep the project + passwords + logs.
-  await deleteProjectArtifacts(project.id, project.blobPrefix);
-
-  const uploaded = await uploadFilesToBlob(project.blobPrefix, files);
-  if (uploaded.length > 0) {
-    await db.insert(projectFiles).values(
-      uploaded.map((u) => ({
-        projectId: project.id,
-        path: u.relPath,
-        blobUrl: u.url,
-        contentType: u.contentType,
-        size: u.bytes.byteLength,
-      })),
-    );
+  const prefix = `projects/${project.slug}/revisions/${randomUUID()}`;
+  const uploaded = await uploadFilesToBlob(prefix, files);
+  let result: { project: Project; oldUrls: string[] };
+  try {
+    result = await db.transaction(async tx => {
+      const [current] = await tx.select().from(projects).where(eq(projects.id, project.id)).for("update");
+      if (!current || current.blobPrefix !== project.blobPrefix || current.updatedAt.getTime() !== project.updatedAt.getTime()) throw new Error("Project changed during upload; fetch it again before updating");
+      const old = await tx.select({ url: projectFiles.blobUrl }).from(projectFiles).where(eq(projectFiles.projectId, project.id));
+      await tx.delete(projectFiles).where(eq(projectFiles.projectId, project.id));
+      await tx.insert(projectFiles).values(uploaded.map(u => ({ projectId: project.id, path: u.relPath, blobUrl: u.url, contentType: u.contentType, size: u.bytes.byteLength })));
+      const [updated] = await tx.update(projects).set({ entryPath, blobPrefix: prefix, updatedAt: new Date() }).where(eq(projects.id, project.id)).returning();
+      return { project: updated, oldUrls: old.map(f => f.url) };
+    });
+  } catch (error) {
+    await del(uploaded.map(f => f.url)).catch(() => {});
+    throw error;
   }
-
-  const updated = await db
-    .update(projects)
-    .set({ entryPath, updatedAt: new Date() })
-    .where(eq(projects.id, project.id))
-    .returning();
-  return updated[0];
+  // Delete exact old URLs: the legacy project prefix also contains new revisions.
+  // Cleanup failure does not undo an already committed, usable replacement.
+  if (result.oldUrls.length) await del(result.oldUrls).catch(() => console.warn("Old project revision cleanup pending"));
+  return result.project;
 }
 
 export async function deleteProject(projectId: string): Promise<void> {
