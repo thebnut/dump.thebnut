@@ -65,6 +65,18 @@ describe("project replacement using a real SQL engine and simulated Blob", () =>
     await expect(replaceProjectFiles(original.id, await bundle({ "index.html": "new" }), "index.html", "upload.zip", new Date(0).toISOString())).rejects.toThrow("Project changed");
     expect([...state.blobs.keys()]).toEqual(oldUrls);
   });
+  it("requires the originally authenticated owner at replacement time", async () => {
+    const original = await fixture();
+    await expect(replaceProjectFiles(original.id, await bundle({ "index.html": "new" }), "index.html", "upload.zip", original.updatedAt.toISOString(), "another-owner")).rejects.toThrow("Owned project not found");
+  });
+  it("rejects ownership changes during the upload even without a timestamp change", async () => {
+    const original = await fixture(); const oldUrls = [...state.blobs.keys()];
+    const other = "22222222-2222-4222-8222-222222222222";
+    await db.insert(schema.users).values({ id: other, email: "other@example.test", passwordHash: "synthetic" });
+    state.beforePut = async () => { await db.update(schema.projects).set({ ownerId: other }).where(eq(schema.projects.id, original.id)); };
+    await expect(replaceProjectFiles(original.id, await bundle({ "index.html": "new" }), "index.html", "upload.zip", original.updatedAt.toISOString(), owner)).rejects.toThrow("Project changed");
+    expect([...state.blobs.keys()]).toEqual(oldUrls);
+  });
   it("rejects a concurrent metadata change and cleans the new revision", async () => {
     const original = await fixture(); const oldUrls = [...state.blobs.keys()];
     state.beforePut = async () => { await db.update(schema.projects).set({ title: "Concurrent title", updatedAt: new Date(Date.now() + 1000) }).where(eq(schema.projects.id, original.id)); };

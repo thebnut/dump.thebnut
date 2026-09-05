@@ -62,9 +62,10 @@ const mcp = createMcpHandler(server => {
     return { ...serialize(p), verification: "Upload complete. Fetch the hosted page and verify its interactions before reporting success." };
   }));
   server.registerTool("replace_project_files", { title: "Replace a static project's files", description: "Replace ALL files of an owned project with the complete supplied bundle. Require updatedAt from a fresh get_project. Keep slug, password protection and expiry; stage uploads before the atomic swap. Omitted files are removed. Read back after uncertain results.", inputSchema: z.object({ slug: slugSchema, expectedUpdatedAt: z.iso.datetime(), entryPath: z.string(), files: z.array(bundleFile).min(1).max(200) }), annotations: { ...writeAnnotations, destructiveHint: true } }, async ({ slug, expectedUpdatedAt, entryPath, files }, ctx) => result(async () => {
-    const p = await owned(slug, user(ctx, true));
+    const id = user(ctx, true);
+    const p = await owned(slug, id);
     const zipBuffer = await prepareMcpBundle(files, entryPath, slug);
-    const updated = await replaceProjectFiles(p.id, zipBuffer, entryPath, "upload.zip", expectedUpdatedAt);
+    const updated = await replaceProjectFiles(p.id, zipBuffer, entryPath, "upload.zip", expectedUpdatedAt, id);
     return { ...serialize(updated), verification: "Files replaced. Check the normal and cache-busted hosted URLs." };
   }));
 }, { serverInfo: { name: "Brett Toolkit", version: "0.1.0" }, instructions: "Load get_workflow for the relevant task. This server supplies five portable workflows and scoped dump.thebnut publishing; Outline and Limitless data use separately authenticated native connections.", maxSubscriptions: 0 });
@@ -77,9 +78,18 @@ const authenticated = withMcpAuth(mcp, async (_req, token): Promise<AuthInfo | u
 }, { required: true, resourceUrl: ISSUER, resourceMetadataPath: "/.well-known/oauth-protected-resource" });
 
 export async function POST(req: Request) {
+  let body: string;
   try {
-    const body = await boundedText(req, 3 * 1024 * 1024);
-    return authenticated(new Request(req.url, { method: "POST", headers: req.headers, body }));
-  } catch { return Response.json({ error: "Request exceeds 3 MiB or is malformed" }, { status: 413 }); }
+    body = await boundedText(req, 3 * 1024 * 1024);
+  } catch { return Response.json({ error: "Request exceeds 3 MiB or is malformed" }, { status: 413, headers: { "Cache-Control": "no-store" } }); }
+  try {
+    const response = await authenticated(new Request(req.url, { method: "POST", headers: req.headers, body }));
+    response.headers.set("Cache-Control", "no-store");
+    return response;
+  } catch { return Response.json({ error: "Publisher temporarily unavailable" }, { status: 503, headers: { "Cache-Control": "no-store" } }); }
 }
-export const GET = authenticated;
+export async function GET(req: Request) {
+  const response = await authenticated(req);
+  response.headers.set("Cache-Control", "no-store");
+  return response;
+}

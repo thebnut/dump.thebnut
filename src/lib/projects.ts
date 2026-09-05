@@ -389,6 +389,7 @@ export async function replaceProjectFiles(
   entryHint?: string,
   originalFilename?: string,
   expectedUpdatedAt?: string,
+  expectedOwnerId?: string,
 ): Promise<Project> {
   const found = await db
     .select()
@@ -397,6 +398,7 @@ export async function replaceProjectFiles(
     .limit(1);
   const project = found[0];
   if (!project) throw new Error("project not found");
+  if (expectedOwnerId && project.ownerId !== expectedOwnerId) throw new Error("Owned project not found");
   if (expectedUpdatedAt && project.updatedAt.toISOString() !== expectedUpdatedAt) throw new Error("Project changed; fetch it again before updating");
 
   const { files, entryPath } = await prepareUpload(
@@ -411,11 +413,11 @@ export async function replaceProjectFiles(
   try {
     result = await db.transaction(async tx => {
       const [current] = await tx.select().from(projects).where(eq(projects.id, project.id)).for("update");
-      if (!current || current.blobPrefix !== project.blobPrefix || current.updatedAt.getTime() !== project.updatedAt.getTime()) throw new Error("Project changed during upload; fetch it again before updating");
+      if (!current || current.ownerId !== project.ownerId || current.blobPrefix !== project.blobPrefix || current.updatedAt.getTime() !== project.updatedAt.getTime()) throw new Error("Project changed during upload; fetch it again before updating");
       const old = await tx.select({ url: projectFiles.blobUrl }).from(projectFiles).where(eq(projectFiles.projectId, project.id));
       await tx.delete(projectFiles).where(eq(projectFiles.projectId, project.id));
       await tx.insert(projectFiles).values(uploaded.map(u => ({ projectId: project.id, path: u.relPath, blobUrl: u.url, contentType: u.contentType, size: u.bytes.byteLength })));
-      const [updated] = await tx.update(projects).set({ entryPath, blobPrefix: prefix, updatedAt: new Date() }).where(eq(projects.id, project.id)).returning();
+      const [updated] = await tx.update(projects).set({ entryPath, blobPrefix: prefix, updatedAt: new Date(Math.max(Date.now(), project.updatedAt.getTime() + 1)) }).where(eq(projects.id, project.id)).returning();
       return { project: updated, oldUrls: old.map(f => f.url) };
     });
   } catch (error) {
