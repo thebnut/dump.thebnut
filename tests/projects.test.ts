@@ -31,6 +31,7 @@ async function fixture() {
   return createProject({ ownerId: owner, title: "Test page", slug: "portable-fixture", originalFilename: "index.html", zipBuffer: new TextEncoder().encode("<head></head><body>old</body>").buffer as ArrayBuffer, passwords: [{ label: "test", password: "synthetic-password" }], expiresAt: new Date(Date.now() + 86400000) });
 }
 beforeAll(async () => {
+  vi.stubEnv("TOOLKIT_OWNER_ID", owner);
   state.db = db;
   for (const name of readdirSync("drizzle").filter(n => n.endsWith(".sql")).sort()) await pg.exec(readFileSync(`drizzle/${name}`, "utf8"));
 }, 20000);
@@ -151,5 +152,11 @@ describe("real MCP transport with scoped SQL tokens", () => {
     expect((await call("tools/list", {}, auth)).response.status).toBe(401);
     await db.update(schema.oauthTokens).set({ resource: RESOURCE, accessExpiresAt: new Date(0) });
     expect((await call("tools/list", {}, auth)).response.status).toBe(401);
+  });
+  it("does not expose personal workflows to a different dump account", async () => {
+    const auth = await token();
+    vi.stubEnv("TOOLKIT_OWNER_ID", "a-different-owner");
+    try { expect((await call("tools/list", {}, auth)).response.status).toBe(401); }
+    finally { vi.stubEnv("TOOLKIT_OWNER_ID", owner); }
   });
 });

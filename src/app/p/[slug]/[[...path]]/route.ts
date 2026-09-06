@@ -10,24 +10,16 @@ import {
 import { readVerifiedGateCookie, readWallet, setGateCookie } from "@/lib/gate";
 import { getClientIp } from "@/lib/util";
 import { contentRedirectTarget } from "@/lib/origins";
+import { createWalletMatcher } from "@/lib/wallet-match";
+import { rateLimit, RL_AUTH } from "@/lib/rate-limit";
 
-// Try every password the visitor has previously entered (the wallet) against
-// this prototype's stored hashes. Returns the matching password label id, or
-// null if nothing matches. Lets a prototype auto-unlock when it shares a
-// password with one the visitor has already unlocked, without a re-prompt.
-async function tryWalletUnlock(projectId: string): Promise<string | null> {
+const matchWallet = createWalletMatcher(bcrypt.compare);
+async function tryWalletUnlock(projectId: string, ownerId: string, ip: string | null) {
   const wallet = await readWallet();
   if (wallet.length === 0) return null;
+  if (!rateLimit(`wallet:${projectId}:${ip ?? 'unknown'}`, RL_AUTH).allowed) return null;
   const hashes = await passwordsForProjectFull(projectId);
-  if (hashes.length === 0) return null;
-  for (const candidate of wallet) {
-    for (const row of hashes) {
-      if (await bcrypt.compare(candidate, row.passwordHash)) {
-        return row.id;
-      }
-    }
-  }
-  return null;
+  return matchWallet(projectId, ownerId, wallet, hashes);
 }
 
 export const runtime = "nodejs";
@@ -97,6 +89,7 @@ export async function GET(
     const ok = await readVerifiedGateCookie(project.id);
     if (ok) {
       passwordLabelIdUsed = ok.passwordLabelId;
+      passwordLabelUsed = ok.label;
       // Sliding window: re-stamp the gate cookie so an actively-used prototype
       // keeps extending its 30-day window instead of expiring mid-use.
       await setGateCookie(project.id, ok.passwordLabelId);
@@ -115,12 +108,13 @@ export async function GET(
       // unlocks silently. Only attempted on navigations: the document request
       // sets the gate cookie, so the page's sub-resources then take the cookie
       // fast path above and never reach this bcrypt work.
-      const walletLabelId = isNavigation
-        ? await tryWalletUnlock(project.id)
+      const walletMatch = isNavigation
+        ? await tryWalletUnlock(project.id, project.ownerId, getClientIp(req))
         : null;
-      if (walletLabelId) {
-        await setGateCookie(project.id, walletLabelId);
-        passwordLabelIdUsed = walletLabelId;
+      if (walletMatch) {
+        await setGateCookie(project.id, walletMatch.id);
+        passwordLabelIdUsed = walletMatch.id;
+        passwordLabelUsed = walletMatch.label;
       } else {
         if (!isNavigation) {
           return new NextResponse("Unauthorized", {

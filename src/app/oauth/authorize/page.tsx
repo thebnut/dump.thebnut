@@ -20,11 +20,12 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
   }
   const session = await auth();
   if (!session?.user?.id) redirect(`/login?callbackUrl=${encodeURIComponent('/oauth/authorize?' + new URLSearchParams(query))}`);
+  if (session.user.id !== process.env.TOOLKIT_OWNER_ID) return <main className="p-8 max-w-lg mx-auto"><h1>This toolkit is private to its owner</h1><p>Sign in with the owner&apos;s dump account to connect.</p></main>;
 
   async function decide(form: FormData) {
     "use server";
     const current = await auth();
-    if (!current?.user?.id || current.user.id !== session!.user.id) redirect("/login");
+    if (!current?.user?.id || current.user.id !== session!.user.id || current.user.id !== process.env.TOOLKIT_OWNER_ID) redirect("/login");
     validateAuthorization(query);
     const destination = new URL(CALLBACK);
     destination.searchParams.set("state", query.state);

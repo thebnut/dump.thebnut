@@ -73,7 +73,7 @@ const mcp = createMcpHandler(server => {
 const authenticated = withMcpAuth(mcp, async (_req, token): Promise<AuthInfo | undefined> => {
   if (!token || !/^[A-Za-z0-9_-]{43}$/.test(token)) return undefined;
   const row = await oauthStore.getToken(hashSecret(token), false);
-  if (!row || row.resource !== RESOURCE || row.accessExpiresAt <= new Date()) return undefined;
+  if (!row || !process.env.TOOLKIT_OWNER_ID || row.userId !== process.env.TOOLKIT_OWNER_ID || row.resource !== RESOURCE || row.accessExpiresAt <= new Date()) return undefined;
   return { token, clientId: CLIENT_ID, scopes: row.scope, expiresAt: Math.floor(row.accessExpiresAt.getTime() / 1000), resource: new URL(RESOURCE), extra: { userId: row.userId } };
 }, { required: true, resourceUrl: ISSUER, resourceMetadataPath: "/.well-known/oauth-protected-resource" });
 

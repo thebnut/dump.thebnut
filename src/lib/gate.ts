@@ -4,6 +4,7 @@ import crypto from "crypto";
 import { and, eq } from "drizzle-orm";
 import { db } from "./db";
 import { projectPasswords } from "./db/schema";
+import type { WalletEntry } from "./wallet-match";
 
 // HMAC key for the gate cookie. Must come from env in any non-dev
 // environment — falling back to a hardcoded string in production (or
@@ -154,6 +155,7 @@ export async function setGateCookie(projectId: string, passwordLabelId: string) 
 
 const WALLET_COOKIE = "dt_pw";
 const WALLET_MAX_ENTRIES = 25; // bound cookie size; most-recent-first
+const WALLET_MAX_BYTES = 3500;
 
 let walletKeyCache: Buffer | null = null;
 function walletKey(): Buffer {
@@ -163,7 +165,7 @@ function walletKey(): Buffer {
   return walletKeyCache;
 }
 
-export function encryptWallet(passwords: string[]): string {
+export function encryptWallet(passwords: WalletEntry[]): string {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv("aes-256-gcm", walletKey(), iv);
   const plaintext = Buffer.from(JSON.stringify(passwords), "utf8");
@@ -176,7 +178,8 @@ export function encryptWallet(passwords: string[]): string {
   ].join(".");
 }
 
-export function decryptWallet(value: string): string[] {
+export function decryptWallet(value: string): WalletEntry[] {
+  if (Buffer.byteLength(value) > WALLET_MAX_BYTES) return [];
   const parts = value.split(".");
   if (parts.length !== 3) return [];
   try {
@@ -186,7 +189,8 @@ export function decryptWallet(value: string): string[] {
     const dec = Buffer.concat([decipher.update(enc), decipher.final()]);
     const parsed: unknown = JSON.parse(dec.toString("utf8"));
     if (!Array.isArray(parsed)) return [];
-    return parsed.filter((p): p is string => typeof p === "string");
+    // Legacy unscoped string entries are not reused across owners.
+    return parsed.filter((p): p is WalletEntry => !!p && typeof p === "object" && typeof p.ownerId === "string" && typeof p.password === "string").slice(0, WALLET_MAX_ENTRIES);
   } catch {
     // Tampered, truncated, or signed with an old/rotated AUTH_SECRET — treat
     // as an empty wallet rather than failing the request.
@@ -194,7 +198,7 @@ export function decryptWallet(value: string): string[] {
   }
 }
 
-export async function readWallet(): Promise<string[]> {
+export async function readWallet(): Promise<WalletEntry[]> {
   const c = await cookies();
   const v = c.get(WALLET_COOKIE)?.value;
   if (!v) return [];
@@ -203,15 +207,20 @@ export async function readWallet(): Promise<string[]> {
 
 // Remember a password the visitor just used. De-duplicates and keeps the most
 // recently used entries first, capped at WALLET_MAX_ENTRIES.
-export async function addPasswordToWallet(password: string): Promise<void> {
-  if (!password) return;
+export async function addPasswordToWallet(password: string, ownerId: string): Promise<void> {
+  if (!password || !ownerId) return;
+  if (Buffer.byteLength(encryptWallet([{ ownerId, password }])) > WALLET_MAX_BYTES) return;
   const existing = await readWallet();
-  const next = [password, ...existing.filter((p) => p !== password)].slice(
+  const next = [{ ownerId, password }, ...existing.filter((p) => p.ownerId !== ownerId || p.password !== password)].slice(
     0,
     WALLET_MAX_ENTRIES,
   );
+  let encrypted = encryptWallet(next);
+  while (Buffer.byteLength(encrypted) > WALLET_MAX_BYTES && next.length) {
+    next.pop(); encrypted = encryptWallet(next);
+  }
   const c = await cookies();
-  c.set(WALLET_COOKIE, encryptWallet(next), {
+  c.set(WALLET_COOKIE, encrypted, {
     httpOnly: true,
     sameSite: "lax",
     secure: process.env.NODE_ENV === "production",

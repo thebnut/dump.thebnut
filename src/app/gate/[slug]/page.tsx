@@ -101,7 +101,7 @@ export default async function GatePage({ params, searchParams }: Props) {
     await setGateCookie(project.id, matched.id);
     // Remember this password so other prototypes sharing it unlock without a
     // re-prompt (see the wallet notes in src/lib/gate.ts).
-    await addPasswordToWallet(password);
+    await addPasswordToWallet(password, project.ownerId);
     redirect(sanitizeRedirect(to, slug));
   }
 

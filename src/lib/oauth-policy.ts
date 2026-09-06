@@ -6,6 +6,7 @@ export const RESOURCE = `${ISSUER}/mcp`;
 export const CLIENT_ID = "chatgpt";
 export const CALLBACK = "https://chatgpt.com/connector_platform_oauth_redirect";
 export const SCOPES = ["projects:read", "projects:write"];
+export class OAuthRequestError extends Error { name = "invalid_request"; code = 400; }
 export const hashSecret = (value: string) => createHash("sha256").update(value).digest("hex");
 export const newSecret = () => randomBytes(32).toString("base64url");
 
@@ -18,7 +19,7 @@ export function localCallback(value: unknown): string {
 export function singleParams(params: URLSearchParams): Record<string, string> {
   const result: Record<string, string> = {};
   for (const [key, value] of params) {
-    if (Object.hasOwn(result, key) || value.length > 4096) throw new Error("Invalid or duplicate OAuth parameter");
+    if (Object.hasOwn(result, key) || value.length > 4096) throw new OAuthRequestError("Invalid or duplicate OAuth parameter");
     result[key] = value;
   }
   return result;
