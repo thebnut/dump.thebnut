@@ -5,7 +5,7 @@ export const ISSUER = "https://dump.thebnut.com";
 export const RESOURCE = `${ISSUER}/mcp`;
 export const CLIENT_ID = "chatgpt";
 export const CALLBACK = "https://chatgpt.com/connector_platform_oauth_redirect";
-export const SCOPES = ["projects:read", "projects:write"];
+export const SCOPES = ["projects:read", "projects:write", "discord:read"];
 export class OAuthRequestError extends Error { name = "invalid_request"; code = 400; }
 export const hashSecret = (value: string) => createHash("sha256").update(value).digest("hex");
 export const newSecret = () => randomBytes(32).toString("base64url");
@@ -35,7 +35,7 @@ export function validateAuthorization(query: Record<string, string>) {
   if (query.code_challenge_method !== "S256" || !/^[A-Za-z0-9_-]{43}$/.test(query.code_challenge ?? "")) throw new Error("S256 PKCE is required");
   if (!query.state || query.state.length > 1024) throw new Error("OAuth state is required");
   const scope = query.scope?.split(" ");
-  if (!validScopes(scope)) throw new Error("Request projects:read and/or projects:write");
+  if (!validScopes(scope)) throw new Error("Request supported toolkit scopes");
   return scope;
 }
 

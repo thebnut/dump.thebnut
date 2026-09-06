@@ -1,5 +1,37 @@
 # dump.thebnut
 
+## Brett Toolkit Discord reader
+
+The owner-only `/mcp` connection includes six read-only Discord tools: list servers,
+list channels and active threads, list archived threads, read history, retrieve a
+message, and search. `get_workflow` accepts `discord-review` for the portable review
+instructions. These tools use Baz's existing bot through Discord REST; they create
+no second Gateway session and do not read or acknowledge his local inbox.
+
+Configure `BAZ_DISCORD_BOT_TOKEN` as a sensitive production environment variable
+using Baz's existing credential, without resetting it. Set `BAZ_DISCORD_GUILDS` to
+the JSON array of `{id, name}` entries from the existing listener configuration.
+No credentials or private server IDs belong in the plugin bundle or repository.
+The allowlist is a deployment snapshot; update it when Baz's configured servers
+change. Channels and threads within those servers are discovered live.
+
+Discord tools require the separate OAuth scope `discord:read`. Existing publishing
+grants cannot acquire it through refresh: refresh the ChatGPT connection's tool
+metadata, reconnect and consent to Read Discord messages. The authorisation screen
+describes the access. Production remains restricted to `TOOLKIT_OWNER_ID`.
+
+For a time-window review, send `since`, then page backwards using `next_before`
+with the same `since` until `window_complete`. Read thread histories separately.
+Permission failures, search indexing and rate limits return explicit errors.
+This version has no scheduler, persistent review cursor, DM access or Discord
+write tools. Recurring reviews need a separately configured cloud task and durable
+review boundaries. Skills are also served through `get_workflow` for cloud clients.
+
+Run `npm test` and `npm run build`. With the two Discord environment variables
+configured securely, `npx tsx scripts/check-discord-reader.ts` verifies discovery,
+one history sample per configured server and indexed search without printing
+messages or credentials.
+
 A tiny multi-tenant hub for static HTML/CSS/JS prototypes.
 
 - Per-user logged-in dashboard

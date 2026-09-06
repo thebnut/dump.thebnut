@@ -56,6 +56,17 @@ describe("OAuth authorization and token exchange", () => {
     store.codes.get(hashSecret(body.code))!.expiresAt = new Date(0);
     await expect(exchangeToken(server, body)).rejects.toThrow();
   });
+  it("issues a Discord-only grant without publishing permissions", async () => {
+    const { server, body } = await fixture({ scope: "discord:read" });
+    const token = (await exchangeToken(server, body)).body;
+    expect(token.scope).toBe("discord:read");
+    await expect(exchangeToken(server, { grant_type: "refresh_token", client_id: CLIENT_ID, resource: RESOURCE, refresh_token: token.refresh_token, scope: "discord:read projects:write" })).rejects.toThrow();
+  });
+  it("does not upgrade an existing project grant to Discord via refresh", async () => {
+    const { server, body } = await fixture();
+    const token = (await exchangeToken(server, body)).body;
+    await expect(exchangeToken(server, { grant_type: "refresh_token", client_id: CLIENT_ID, resource: RESOURCE, refresh_token: token.refresh_token, scope: "discord:read" })).rejects.toThrow();
+  });
   it("rotates refresh tokens, reduces scope and rejects reuse", async () => {
     const { server, body } = await fixture();
     const first = (await exchangeToken(server, body)).body;

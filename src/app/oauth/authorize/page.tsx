@@ -42,11 +42,12 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Pr
 
   return <main className="min-h-dvh grid place-items-center p-6 bg-neutral-950 text-neutral-100">
     <section className="max-w-lg w-full border border-neutral-700 rounded-xl p-7 space-y-5">
-      <h1 className="text-2xl font-semibold">Connect ChatGPT to your dump</h1>
+      <h1 className="text-2xl font-semibold">Connect ChatGPT to Brett Toolkit</h1>
       <p>Signed in as {session.user.email}.</p>
       <ul className="list-disc pl-5 space-y-2">
         {scopes.includes("projects:read") && <li>Read the names, settings and file lists of projects you own.</li>}
         {scopes.includes("projects:write") && <li>Create public static pages and replace files in projects you own. Existing passwords and expiry settings are preserved.</li>}
+        {scopes.includes("discord:read") && <li>Read and search messages, thread history and attachment links in your configured Discord servers using Baz&apos;s existing bot access. This does not include personal DMs or permission to send Discord messages.</li>}
       </ul>
       <p className="text-neutral-400 text-sm">This connection cannot delete projects, manage users or change passwords. You can disconnect it from your Connected apps page.</p>
       <form action={decide} className="flex flex-wrap gap-3">
