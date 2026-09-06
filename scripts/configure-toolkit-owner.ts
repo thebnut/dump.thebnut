@@ -13,7 +13,8 @@ async function main() {
     const hash = createHash("sha256").update(token).digest("hex");
     const [owner] = await sql`select user_id from api_tokens where token_hash = ${hash} and revoked_at is null limit 1`;
     if (!owner) throw new Error("The existing publisher credential has no active owner");
-    const result = spawnSync("vercel", ["env", "add", "TOOLKIT_OWNER_ID", "production", "--scope", "team_Ho8iFbFMhpxq9SuxTNgCqvYw"], { input: owner.user_id + "\n", encoding: "utf8" });
+    // Vercel preserves stdin verbatim. A trailing newline breaks the exact owner check.
+    const result = spawnSync("vercel", ["env", "add", "TOOLKIT_OWNER_ID", "production", "--scope", "team_Ho8iFbFMhpxq9SuxTNgCqvYw"], { input: owner.user_id, encoding: "utf8" });
     if (result.status !== 0) throw new Error("Owner environment setting could not be added");
     console.log("Toolkit access is configured for the owner of the existing publisher credential");
   } finally { await sql.end(); }
