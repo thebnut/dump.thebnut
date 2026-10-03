@@ -187,10 +187,19 @@ export async function GET(
   //      regardless of whether the URL has a trailing slash. Next.js
   //      strips the slash via a 308, which would otherwise make
   //      relative paths resolve against /p/ instead of /p/<slug>/.
+  //   3. ensureDescriptionMeta — give link-preview crawlers a generic
+  //      description when the prototype doesn't declare one, so a shared
+  //      URL reads "Shared link" rather than nothing. Protected
+  //      prototypes get "Shared secure link" (crawlers normally hit the
+  //      gate page for those; see its metadata export).
   if (isHtml) {
     const text = await new Response(upstream).text();
     let rewritten = rewriteHtmlPaths(text, slug);
     rewritten = ensureBaseHref(rewritten, `/p/${slug}/`);
+    rewritten = ensureDescriptionMeta(
+      rewritten,
+      project.isProtected ? "Shared secure link" : "Shared link",
+    );
     return new NextResponse(rewritten, {
       status: 200,
       headers: {
@@ -251,6 +260,33 @@ export function ensureBaseHref(html: string, baseHref: string): string {
     /<head\b[^>]*>/i,
     (m) => `${m}\n<base href="${baseHref}">`,
   );
+}
+
+// Inject <meta name="description"> + <meta property="og:description"> into
+// <head> when the page declares neither. A prototype that ships its own
+// description keeps it — the author knows what they want the preview to
+// say. No <head>: leave the document alone, same as ensureBaseHref.
+export function ensureDescriptionMeta(html: string, description: string): string {
+  // Exact attribute name and value, quoted or not (minified HTML often
+  // ships <meta name=description ...> unquoted), ignoring commented-out
+  // tags. `data-name=`, `name="description-extra"` and the like don't count.
+  const live = html.replace(/<!--[\s\S]*?-->/g, "");
+  const declares = (attr: string, value: string) =>
+    new RegExp(
+      String.raw`<meta\b[^>]*\s${attr}\s*=\s*(?:(["'])${value}\1|${value}(?=[\s/>]))`,
+      "i",
+    ).test(live);
+  if (declares("name", "description") || declares("property", "og:description")) {
+    return html;
+  }
+  const safe = escapeHtml(description);
+  // Inject after the first <head> that isn't inside a comment.
+  let injected = false;
+  return html.replace(/<!--[\s\S]*?-->|<head\b[^>]*>/gi, (m) => {
+    if (injected || m.startsWith("<!--")) return m;
+    injected = true;
+    return `${m}\n<meta name="description" content="${safe}">\n<meta property="og:description" content="${safe}">`;
+  });
 }
 
 // The 410 Gone page shown when a protected/expired project is hit by a
