@@ -267,10 +267,16 @@ export function ensureBaseHref(html: string, baseHref: string): string {
 // description keeps it — the author knows what they want the preview to
 // say. No <head>: leave the document alone, same as ensureBaseHref.
 export function ensureDescriptionMeta(html: string, description: string): string {
-  // Quote-agnostic like ensureBaseHref's guard — minified HTML often ships
-  // <meta name=description ...> unquoted.
-  if (/<meta\b[^>]*\bname\s*=\s*["']?description\b/i.test(html)) return html;
-  if (/<meta\b[^>]*\bproperty\s*=\s*["']?og:description\b/i.test(html)) {
+  // Exact attribute name and value, quoted or not (minified HTML often
+  // ships <meta name=description ...> unquoted), ignoring commented-out
+  // tags. `data-name=`, `name="description-extra"` and the like don't count.
+  const live = html.replace(/<!--[\s\S]*?-->/g, "");
+  const declares = (attr: string, value: string) =>
+    new RegExp(
+      String.raw`<meta\b[^>]*\s${attr}\s*=\s*(["']?)${value}\1(?=[\s/>])`,
+      "i",
+    ).test(live);
+  if (declares("name", "description") || declares("property", "og:description")) {
     return html;
   }
   const safe = escapeHtml(description);
