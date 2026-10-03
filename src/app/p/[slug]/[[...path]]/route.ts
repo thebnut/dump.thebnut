@@ -273,18 +273,20 @@ export function ensureDescriptionMeta(html: string, description: string): string
   const live = html.replace(/<!--[\s\S]*?-->/g, "");
   const declares = (attr: string, value: string) =>
     new RegExp(
-      String.raw`<meta\b[^>]*\s${attr}\s*=\s*(["']?)${value}\1(?=[\s/>])`,
+      String.raw`<meta\b[^>]*\s${attr}\s*=\s*(?:(["'])${value}\1|${value}(?=[\s/>]))`,
       "i",
     ).test(live);
   if (declares("name", "description") || declares("property", "og:description")) {
     return html;
   }
   const safe = escapeHtml(description);
-  return html.replace(
-    /<head\b[^>]*>/i,
-    (m) =>
-      `${m}\n<meta name="description" content="${safe}">\n<meta property="og:description" content="${safe}">`,
-  );
+  // Inject after the first <head> that isn't inside a comment.
+  let injected = false;
+  return html.replace(/<!--[\s\S]*?-->|<head\b[^>]*>/gi, (m) => {
+    if (injected || m.startsWith("<!--")) return m;
+    injected = true;
+    return `${m}\n<meta name="description" content="${safe}">\n<meta property="og:description" content="${safe}">`;
+  });
 }
 
 // The 410 Gone page shown when a protected/expired project is hit by a
