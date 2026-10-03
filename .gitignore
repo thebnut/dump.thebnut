@@ -52,3 +52,6 @@ next-env.d.ts
 sonar-triage-*.md
 sonar-progress-*.md
 sonar-hotspot-review-*.md
+
+# standalone prototype repos tracked independently (not part of dump's history)
+/prototypes/
