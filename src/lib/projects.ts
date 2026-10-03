@@ -1,5 +1,5 @@
 import "server-only";
-import { put, del, list } from "@vercel/blob";
+import { putProjectFile, deleteBlobsUnderPrefix } from "./blob";
 import JSZip from "jszip";
 import bcrypt from "bcryptjs";
 import { eq, and, sql } from "drizzle-orm";
@@ -281,17 +281,12 @@ async function uploadFilesToBlob(
 ) {
   return Promise.all(
     prepared.map(async (f) => {
-      const result = await put(
+      const url = await putProjectFile(
         `${blobPrefix}/${f.relPath}`,
         Buffer.from(f.bytes),
-        {
-          access: "public",
-          contentType: f.contentType,
-          addRandomSuffix: false,
-          allowOverwrite: true,
-        },
+        f.contentType,
       );
-      return { ...f, url: result.url };
+      return { ...f, url };
     }),
   );
 }
@@ -428,14 +423,10 @@ export async function deleteProject(projectId: string): Promise<void> {
 }
 
 async function deleteProjectArtifacts(projectId: string, blobPrefix: string) {
-  let cursor: string | undefined;
-  do {
-    const page = await list({ prefix: blobPrefix, cursor });
-    if (page.blobs.length > 0) {
-      await del(page.blobs.map((b) => b.url));
-    }
-    cursor = page.cursor;
-  } while (cursor);
+  // All of this project's files live under `${blobPrefix}/` (see
+  // uploadFilesToBlob). The trailing slash matters: a bare prefix would also
+  // match a sibling project such as "projects/<slug>-rsvps/…".
+  await deleteBlobsUnderPrefix(`${blobPrefix}/`);
   await db.delete(projectFiles).where(eq(projectFiles.projectId, projectId));
 }
 

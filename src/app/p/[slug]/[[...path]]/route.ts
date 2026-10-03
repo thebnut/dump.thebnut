@@ -12,6 +12,7 @@ import {
 } from "@/lib/gate";
 import { getClientIp } from "@/lib/util";
 import { contentRedirectTarget } from "@/lib/origins";
+import { readBlob } from "@/lib/blob";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -146,9 +147,10 @@ export async function GET(
     return new NextResponse("File not found in project", { status: 404 });
   }
 
-  // Fetch from Vercel Blob and stream back through our origin.
-  const upstream = await fetch(file.blobUrl, { cache: "no-store" });
-  if (!upstream.ok || !upstream.body) {
+  // Read from Vercel Blob (public or private store, per the file's URL) and
+  // stream back through our origin.
+  const upstream = await readBlob(file.blobUrl);
+  if (!upstream) {
     return new NextResponse("Upstream fetch failed", { status: 502 });
   }
 
@@ -181,7 +183,7 @@ export async function GET(
   //      strips the slash via a 308, which would otherwise make
   //      relative paths resolve against /p/ instead of /p/<slug>/.
   if (isHtml) {
-    const text = await upstream.text();
+    const text = await new Response(upstream).text();
     let rewritten = rewriteHtmlPaths(text, slug);
     rewritten = ensureBaseHref(rewritten, `/p/${slug}/`);
     return new NextResponse(rewritten, {
@@ -194,7 +196,7 @@ export async function GET(
     });
   }
 
-  return new NextResponse(upstream.body, {
+  return new NextResponse(upstream, {
     status: 200,
     headers: {
       "Content-Type": file.contentType,
