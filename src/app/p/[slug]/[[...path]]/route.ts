@@ -5,7 +5,11 @@ import {
   projectBySlugPublic,
   findProjectFile,
 } from "@/lib/queries";
-import { readVerifiedGateCookie } from "@/lib/gate";
+import {
+  readVerifiedGateCookie,
+  setGateCookie,
+  tryWalletUnlock,
+} from "@/lib/gate";
 import { getClientIp } from "@/lib/util";
 import { contentRedirectTarget } from "@/lib/origins";
 
@@ -72,37 +76,69 @@ export async function GET(
   // to fail loudly so the network tab shows the real problem.
   let passwordLabelUsed: string | null = null;
   let passwordLabelIdUsed: string | null = null;
+  // `Sec-Fetch-Dest: document` (or `iframe` when embedded) indicates a
+  // top-level navigation where redirecting to the gate is the right
+  // behaviour. Everything else is a sub-resource fetched by the page
+  // itself — `style`, `script`, `image`, `font`, `empty` (fetch()), etc.
+  // If the header is absent (older browsers, curl, scripted clients)
+  // we treat the request as a navigation and let it through to the gate.
+  const dest = req.headers.get("sec-fetch-dest");
+  const isNavigation = !dest || dest === "document" || dest === "iframe";
   if (project.isProtected) {
-    // readVerifiedGateCookie returns null when the HMAC is bad OR when the
-    // cookie's password_label_id points at a now-deleted row. Both cases
-    // fall through to the same "redirect to gate" path below.
-    const ok = await readVerifiedGateCookie(project.id);
-    if (!ok) {
-      // `Sec-Fetch-Dest: document` (or `iframe` when embedded) indicates a
-      // top-level navigation where redirecting to the gate is the right
-      // behaviour. Everything else is a sub-resource fetched by the page
-      // itself — `style`, `script`, `image`, `font`, `empty` (fetch()), etc.
-      // If the header is absent (older browsers, curl, scripted clients)
-      // we treat the request as a navigation and let it through to the gate.
-      const dest = req.headers.get("sec-fetch-dest");
-      const isNavigation = !dest || dest === "document" || dest === "iframe";
-      if (!isNavigation) {
-        return new NextResponse("Unauthorized", {
-          status: 401,
-          headers: { "Cache-Control": "no-store" },
-        });
+    // readVerifiedGateCookie returns null when the HMAC is bad, the cookie
+    // is past its ceiling, or its password has been deleted or rotated. All
+    // of those fall through to the wallet, then the gate, below.
+    const session = await readVerifiedGateCookie(project.id);
+    if (session) {
+      passwordLabelIdUsed = session.passwordLabelId;
+      passwordLabelUsed = session.label;
+      // Sliding window: re-stamp the gate cookie so an actively-used prototype
+      // keeps extending its 30-day window instead of expiring mid-use. The
+      // original issue time is kept, so the 90-day ceiling still applies.
+      // Page loads are enough to keep it fresh; skipping sub-resources
+      // avoids a Set-Cookie on every CSS/JS/image response.
+      if (isNavigation) {
+        await setGateCookie(
+          project.id,
+          { id: session.passwordLabelId, passwordHash: session.passwordHash },
+          session.issuedAt,
+        );
       }
-      const url = req.nextUrl.clone();
-      url.pathname = `/gate/${slug}`;
-      url.searchParams.set("to", `/p/${slug}/${requested}`);
-      const res = NextResponse.redirect(url);
-      // Belt-and-braces: keep edge caches from holding onto this redirect
-      // and serving it back to requests that DO have a valid cookie.
-      res.headers.set("Cache-Control", "no-store");
-      return res;
+    } else {
+      // Before prompting, try the visitor's password wallet — if they've
+      // already unlocked another of this owner's prototypes with the same
+      // password, this one unlocks silently. Only attempted on navigations:
+      // the document request sets the gate cookie, so the page's
+      // sub-resources then take the cookie fast path above and never reach
+      // this bcrypt work.
+      const walletMatch = isNavigation
+        ? await tryWalletUnlock(project, getClientIp(req) ?? "unknown")
+        : null;
+      if (walletMatch) {
+        await setGateCookie(
+          project.id,
+          walletMatch.password,
+          walletMatch.issuedAt,
+        );
+        passwordLabelIdUsed = walletMatch.password.id;
+        passwordLabelUsed = walletMatch.password.label;
+      } else {
+        if (!isNavigation) {
+          return new NextResponse("Unauthorized", {
+            status: 401,
+            headers: { "Cache-Control": "no-store" },
+          });
+        }
+        const url = req.nextUrl.clone();
+        url.pathname = `/gate/${slug}`;
+        url.searchParams.set("to", `/p/${slug}/${requested}`);
+        const res = NextResponse.redirect(url);
+        // Belt-and-braces: keep edge caches from holding onto this redirect
+        // and serving it back to requests that DO have a valid cookie.
+        res.headers.set("Cache-Control", "no-store");
+        return res;
+      }
     }
-    passwordLabelIdUsed = ok.passwordLabelId;
-    passwordLabelUsed = ok.label;
   }
 
   const file = await findProjectFile(project.id, requested);

@@ -117,11 +117,14 @@ export async function projectBySlugPublic(slug: string) {
   return rows[0] ?? null;
 }
 
+// Oldest first, so when several passwords match the same input the one
+// recorded in the access log is deterministic.
 export async function passwordsForProjectFull(projectId: string) {
   return db
     .select()
     .from(projectPasswords)
-    .where(eq(projectPasswords.projectId, projectId));
+    .where(eq(projectPasswords.projectId, projectId))
+    .orderBy(projectPasswords.createdAt, projectPasswords.id);
 }
 
 export async function listUsers() {

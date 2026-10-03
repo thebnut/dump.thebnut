@@ -5,7 +5,7 @@ import {
   projectBySlugPublic,
   passwordsForProjectFull,
 } from "@/lib/queries";
-import { setGateCookie } from "@/lib/gate";
+import { setGateCookie, addPasswordToWallet } from "@/lib/gate";
 import { contentRedirectTarget } from "@/lib/origins";
 import { ipFromHeaders } from "@/lib/util";
 import { rateLimit, RL_AUTH } from "@/lib/rate-limit";
@@ -67,11 +67,11 @@ export default async function GatePage({ params, searchParams }: Props) {
     if (!project) redirect("/");
 
     const passwords = await passwordsForProjectFull(project.id);
-    let matched: { id: string } | null = null;
+    let matched: (typeof passwords)[number] | null = null;
     for (const p of passwords) {
       const ok = await bcrypt.compare(password, p.passwordHash);
       if (ok) {
-        matched = { id: p.id };
+        matched = p;
         break;
       }
     }
@@ -83,7 +83,10 @@ export default async function GatePage({ params, searchParams }: Props) {
       redirect(`/gate/${slug}?${u.toString()}`);
     }
 
-    await setGateCookie(project.id, matched.id);
+    await setGateCookie(project.id, matched);
+    // Remember this password so the same owner's other prototypes sharing it
+    // unlock without a re-prompt (see the wallet notes in src/lib/gate.ts).
+    await addPasswordToWallet(project.ownerId, password);
     redirect(sanitizeRedirect(to, slug));
   }
 
@@ -124,6 +127,11 @@ export default async function GatePage({ params, searchParams }: Props) {
             className="w-full rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm font-mono focus:outline-none focus:border-[#39ff88] focus:shadow-[0_0_0_1px_#39ff88,0_0_12px_-4px_rgba(57,255,136,0.55)]"
           />
         </div>
+
+        <p className="text-[11px] text-neutral-500">
+          this device remembers the password for 30 days, and opens other
+          prototypes from the same sharer that use it.
+        </p>
 
         {sp.error === "rate_limited" ? (
           <p className="text-xs text-amber-400">
