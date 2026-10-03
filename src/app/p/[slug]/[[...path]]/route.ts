@@ -149,7 +149,12 @@ export async function GET(
 
   // Read from Vercel Blob (public or private store, per the file's URL) and
   // stream back through our origin.
-  const upstream = await readBlob(file.blobUrl);
+  let upstream: ReadableStream<Uint8Array> | null = null;
+  try {
+    upstream = await readBlob(file.blobUrl);
+  } catch (e) {
+    console.error(`[blob ${slug}/${requested}] read failed:`, e);
+  }
   if (!upstream) {
     return new NextResponse("Upstream fetch failed", { status: 502 });
   }

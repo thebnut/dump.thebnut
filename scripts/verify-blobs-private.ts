@@ -53,6 +53,14 @@ async function main() {
   const argv = process.argv.slice(2);
   const baseIdx = argv.indexOf("--base");
   const base = (baseIdx >= 0 ? argv[baseIdx + 1] : "https://content.thebnut.com").replace(/\/+$/, "");
+  // The run sends minted gate cookies to `base`, so only known hosts.
+  const host = new URL(base).hostname;
+  if (
+    !["content.thebnut.com", "dump.thebnut.com", "localhost"].includes(host) &&
+    !host.endsWith(".vercel.app")
+  ) {
+    throw new Error(`refusing to send gate cookies to ${host}`);
+  }
   const prefixIdx = argv.indexOf("--slug-prefix");
   const slugPrefix = prefixIdx >= 0 ? argv[prefixIdx + 1] : "";
   if (prefixIdx >= 0 && (!slugPrefix || slugPrefix.startsWith("--"))) {

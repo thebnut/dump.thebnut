@@ -16,7 +16,7 @@ config({ path: ".env.local" });
 config({ path: ".env" });
 
 import crypto from "crypto";
-import { put, get, head } from "@vercel/blob";
+import { put, get, head, BlobNotFoundError } from "@vercel/blob";
 
 const PRIVATE_HOST_SUFFIX = ".private.blob.vercel-storage.com";
 // Projects changed more recently than this are skipped (a rerun picks them
@@ -67,12 +67,14 @@ async function readBlobBytes(
   return Buffer.from(await new Response(r.stream).arrayBuffer());
 }
 
-async function privateExists(pathname: string, token: string): Promise<boolean> {
+// The private blob at `pathname`, or null if there is none. Any other
+// error (auth, network) propagates rather than reading as "absent".
+async function privateHead(pathname: string, token: string) {
   try {
-    await head(pathname, { token });
-    return true;
-  } catch {
-    return false;
+    return await head(pathname, { token });
+  } catch (e) {
+    if (e instanceof BlobNotFoundError) return null;
+    throw e;
   }
 }
 
@@ -150,8 +152,8 @@ async function main() {
       // (identical bytes: adopt it) or a newer re-upload of the project
       // (different bytes: leave it alone, its row already points there).
       let privateUrl: string;
-      if (await privateExists(pathname, token)) {
-        const meta = await head(pathname, { token });
+      const meta = await privateHead(pathname, token);
+      if (meta) {
         const existing = await readBlobBytes(meta.url, "private", token);
         if (!existing || sha256(existing) !== sha256(bytes)) {
           skipped++;
