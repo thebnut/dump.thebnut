@@ -6,6 +6,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "./db";
 import { projectPasswords } from "./db/schema";
 import { passwordsForProjectFull } from "./queries";
+import { rateLimit, RL_AUTH } from "./rate-limit";
 
 // HMAC key for the gate cookie. Must come from env in any non-dev
 // environment — falling back to a hardcoded string in production (or
@@ -296,10 +297,14 @@ async function rememberEntry(entry: WalletEntry): Promise<void> {
 // a wallet unlock can't extend the 90-day ceiling), or null. Lets a
 // prototype auto-unlock when it shares a password with one the visitor has
 // already unlocked, without a re-prompt.
-export async function tryWalletUnlock(project: {
-  id: string;
-  ownerId: string;
-}): Promise<{
+//
+// Attempts are rate-limited per client IP (across projects, since walking
+// many projects is the abuse pattern), like the gate form. A limited
+// visitor just sees the gate.
+export async function tryWalletUnlock(
+  project: { id: string; ownerId: string },
+  ip: string,
+): Promise<{
   password: GatePassword & { label: string };
   issuedAt: number;
 } | null> {
@@ -307,6 +312,7 @@ export async function tryWalletUnlock(project: {
     (e) => e.o === project.ownerId,
   );
   if (candidates.length === 0) return null;
+  if (!rateLimit(`wallet:${ip}`, RL_AUTH).allowed) return null;
   const rows = await passwordsForProjectFull(project.id);
   let compares = 0;
   for (const candidate of candidates) {

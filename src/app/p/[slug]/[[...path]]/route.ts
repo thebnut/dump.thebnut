@@ -76,6 +76,14 @@ export async function GET(
   // to fail loudly so the network tab shows the real problem.
   let passwordLabelUsed: string | null = null;
   let passwordLabelIdUsed: string | null = null;
+  // `Sec-Fetch-Dest: document` (or `iframe` when embedded) indicates a
+  // top-level navigation where redirecting to the gate is the right
+  // behaviour. Everything else is a sub-resource fetched by the page
+  // itself — `style`, `script`, `image`, `font`, `empty` (fetch()), etc.
+  // If the header is absent (older browsers, curl, scripted clients)
+  // we treat the request as a navigation and let it through to the gate.
+  const dest = req.headers.get("sec-fetch-dest");
+  const isNavigation = !dest || dest === "document" || dest === "iframe";
   if (project.isProtected) {
     // readVerifiedGateCookie returns null when the HMAC is bad, the cookie
     // is past its ceiling, or its password has been deleted or rotated. All
@@ -87,28 +95,25 @@ export async function GET(
       // Sliding window: re-stamp the gate cookie so an actively-used prototype
       // keeps extending its 30-day window instead of expiring mid-use. The
       // original issue time is kept, so the 90-day ceiling still applies.
-      await setGateCookie(
-        project.id,
-        { id: session.passwordLabelId, passwordHash: session.passwordHash },
-        session.issuedAt,
-      );
+      // Page loads are enough to keep it fresh; skipping sub-resources
+      // avoids a Set-Cookie on every CSS/JS/image response.
+      if (isNavigation) {
+        await setGateCookie(
+          project.id,
+          { id: session.passwordLabelId, passwordHash: session.passwordHash },
+          session.issuedAt,
+        );
+      }
     } else {
-      // `Sec-Fetch-Dest: document` (or `iframe` when embedded) indicates a
-      // top-level navigation where redirecting to the gate is the right
-      // behaviour. Everything else is a sub-resource fetched by the page
-      // itself — `style`, `script`, `image`, `font`, `empty` (fetch()), etc.
-      // If the header is absent (older browsers, curl, scripted clients)
-      // we treat the request as a navigation and let it through to the gate.
-      const dest = req.headers.get("sec-fetch-dest");
-      const isNavigation = !dest || dest === "document" || dest === "iframe";
-
       // Before prompting, try the visitor's password wallet — if they've
       // already unlocked another of this owner's prototypes with the same
       // password, this one unlocks silently. Only attempted on navigations:
       // the document request sets the gate cookie, so the page's
       // sub-resources then take the cookie fast path above and never reach
       // this bcrypt work.
-      const walletMatch = isNavigation ? await tryWalletUnlock(project) : null;
+      const walletMatch = isNavigation
+        ? await tryWalletUnlock(project, getClientIp(req) ?? "unknown")
+        : null;
       if (walletMatch) {
         await setGateCookie(
           project.id,
